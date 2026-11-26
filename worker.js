@@ -463,29 +463,45 @@ function kickDuration(value){
 function mergeKickDurations(rows,details){
  const byId=new Map();
  for(const d of details){const id=String(d.id??"").toLowerCase();if(!/^[a-z0-9_-]{1,40}$/.test(id))continue;const duration=kickDuration(d.duration);if(duration){if(byId.has(id)&&byId.get(id)!==duration)byId.set(id,"");else if(!byId.has(id))byId.set(id,duration);}}
- return rows.map(row=>{const duration=kickDuration(row.duration)||byId.get(row.id)||"";return {...row,duration};});
+ const imageMap=new Map(details.map(d=>[d.id,d.thumbnailCandidates||[]]));
+ return rows.map(row=>{const duration=kickDuration(row.duration)||byId.get(row.id)||"";const images=[...new Set([...(imageMap.get(row.id)||[]),row.thumbnail,...(row.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);return {...row,duration,thumbnail:images[0]||"",thumbnailCandidates:images,thumbnailVerified:row.thumbnailVerified===true||!!imageMap.get(row.id)?.length};});
 }
-function parseKickPublic(html){
- const sanitized=String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
- const anchors=[...sanitized.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)].filter(a=>/^https:\/\/(?:www\.)?kick\.com\/[a-z0-9_-]{1,40}\/?(?:[?#][^\s]*)?$/i.test(a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||""));
+function parseKickChikuwa(html){
+ const safe=String(html||"").replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
+ const attr=(tag,key)=>tag.match(new RegExp("(?:^|\\s)"+key+"\\s*=\\s*([\"'])([\\s\\S]*?)\\1","i"))?.[2]?.replace(/&amp;/g,"&")||"";
  const plain=s=>s.replace(/<[^>]*>/g," ").replace(/&amp;/g,"&").replace(/&nbsp;|&#160;/g," ").replace(/\s+/g," ").trim();
+ const anchors=[...safe.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)].map(a=>({a,id:/^https:\/\/(?:www\.)?kick\.com\/([a-z0-9_-]{1,40})\/?(?:[?#][^\s]*)?$/i.exec(attr(a[1],"href"))?.[1]?.toLowerCase()})).filter(x=>x.id);
  const rows=[],seen=new Set();
- for(let i=0;i<anchors.length&&rows.length<100;i++){
-  const a=anchors[i],href=a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)[2],id=/^https:\/\/(?:www\.)?kick\.com\/([a-z0-9_-]{1,40})/i.exec(href)[1].toLowerCase();
-  if(seen.has(id)||["categories","browse","login","signup","settings","search","about","terms","privacy"].includes(id))continue;
-  const tail=sanitized.slice(a.index+a[0].length,Math.min(anchors[i+1]?.index??sanitized.length,a.index+a[0].length+5000));
-  const block=a[2]+" "+tail;
-  const imageIds=[...block.matchAll(/<img\b[^>]*\balt\s*=\s*(["'])KCK_([a-z0-9_-]{1,40})\1/gi)].map(m=>m[2].toLowerCase());
-  if(!imageIds.includes(id)||imageIds.some(x=>x!==id))continue;
-  const metrics=plain(block),values=[...metrics.matchAll(/(?:^|\s)(\d{1,3}(?:,\d{3})+|\d{1,10})\s*viewers\b/gi)];
-  const viewers=values.length===1?Number(values[0][1].replace(/,/g,"")):null;
-  const tailText=plain(tail);const durations=[...tailText.matchAll(/(?:^|\s)((?:\d+日\s*)?(?:\d+時間\s*)?\d+分|\d+日\s*\d+時間|\d+時間|\d+日)(?=\s|$)/g)].map(m=>kickDuration(m[1])).filter(Boolean);
-  const title=plain(a[1].match(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/i)?.[2]||a[2]).slice(0,250);
-  const imageTag=[...block.matchAll(/<img\b[^>]*>/gi)].find(m=>new RegExp("\\balt\\s*=\\s*[\\\"\']KCK_"+id+"[\\\"\']","i").test(m[0]));
-  const thumb=imageTag?.[0].match(/\s(?:data-src|data-original|src)\s*=\s*(["'])(.*?)\1/i)?.[2]||"";
-  seen.add(id);rows.push({id,name:id,title:title||id,viewers,thumbnail:validatedThumb(thumb.replaceAll("&amp;","&"),"kick"),duration:durations.length===1?durations[0]:""});
+ for(let i=0;i<anchors.length&&rows.length<200;){
+  const first=anchors[i],id=first.id;let j=i+1;
+  while(j<anchors.length&&anchors[j].id===id)j++;
+  const group=anchors.slice(i,j),end=Math.min(anchors[j]?.a.index??safe.length,group.at(-1).a.index+group.at(-1).a[0].length+6000),start=first.a.index;
+  const block=safe.slice(start,end),tail=safe.slice(group.at(-1).a.index+group.at(-1).a[0].length,end);
+  i=j;
+  if(seen.has(id))continue;
+  const markers=[...block.matchAll(/<img\b[^>]*>/gi)].map(m=>attr(m[0],"alt")).filter(v=>/^KCK_[a-z0-9_-]+$/i.test(v)).map(v=>v.slice(4).toLowerCase());
+  if(!markers.includes(id)||markers.some(v=>v!==id))continue;
+  const images=[];
+  for(const {a} of group)for(const [tag] of a[2].matchAll(/<img\b[^>]*>/gi)){
+   if(/(?:avatar|profile|logo|usericon)/i.test(tag))continue;
+   for(const key of ["data-src","data-original","data-lazy-src","src"]){
+    let value=attr(tag,key);
+    if(value.startsWith("//"))value="https:"+value;
+    if(/^https:\/\/[^/?#]+\/[^?#]*\/thumbnail\.jpe?g(?:\?[^#]*)?$/i.test(value)&&!images.includes(value)&&images.length<4)images.push(value);
+   }
+  }
+  const values=[...plain(tail).matchAll(/(?:^|\s)(\d{1,3}(?:,\d{3})+|\d{1,10})\s*viewers\b/gi)];
+  const duration=plain(tail).match(/(?:^|\s)((?:\d+日\s*)?(?:\d+時間\s*)?\d+分|\d+日\s*\d+時間|\d+時間|\d+日)(?=\s|$)/)?.[1]||"";
+  const title=group.map(({a})=>plain(attr(a[1],"title")||attr(a[1],"aria-label")||a[2])).sort((a,b)=>b.length-a.length)[0]||id;
+  seen.add(id);rows.push({id,name:id,title:title.slice(0,250),viewers:values.length===1?Number(values[0][1].replace(/,/g,"")):null,duration,images});
  }
  return rows;
+}
+function parseKickPublic(html){
+ return parseKickChikuwa(html).map(({images,...row})=>{
+  const candidates=images.map(v=>kickProxyImage(v)||validatedThumb(v,"kick")).filter(Boolean);
+  return {...row,duration:kickDuration(row.duration),thumbnail:candidates[0]||"",thumbnailCandidates:candidates,thumbnailVerified:true};
+ });
 }
 function diagnostic(error){const msg=String(error?.message||"");return /^HTTP \d{3}$/.test(msg)?msg:error?.name==="TimeoutError"||error?.name==="AbortError"?"タイムアウト":msg==="取得上限超過"?"応答サイズ上限":"通信・形式エラー";}
 async function publicKickRanking(reason){
@@ -514,7 +530,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r48";
+const RANK_CACHE_REVISION="r51";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -999,6 +1015,14 @@ function parseKickReferenceImages(html){
  }
  return rows;
 }
+async function kickChikuwaImages(origin,id){
+ const key=new Request(origin+"/__cache/kick-chikuwa-images-r51");
+ try{const cached=await caches.default.match(key);if(cached){const rows=await cached.json();return Array.isArray(rows[id])?rows[id]:[];}}catch{}
+ try{const html=await fetchBounded("https://www.chikuwachan.com/live/KCK/",{headers:{accept:"text/html"}},6*1024*1024);const rows=Object.create(null);
+ for(const row of parseKickPublic(html)){if(row.thumbnailCandidates.length)rows[row.id]=row.thumbnailCandidates;}
+ try{await caches.default.put(key,json(rows,200,"public, max-age=60"));}catch{}return rows[id]||[];
+ }catch{return [];}
+}
 async function kickReferenceImages(origin,id){
  const key=new Request(origin+"/__cache/kick-reference-images-r50");
  try{
@@ -1052,7 +1076,7 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r50")+"/"+type+"/"+id+(preview?"/preview":""));
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
  const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r47/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
@@ -1074,11 +1098,12 @@ async function liveThumbnail(request){
  // Prefer already observed program images; resolve from fixed public endpoints if unavailable.
  let attempted=new Set(),workingSource="";
  async function tryImages(images,verified=false){
-  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:7))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
+  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:9))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
  }
  const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!!known.profileUrl));
  const initial=type==="nico"&&!isNicoUser?(known.programThumbnails||[]).filter(v=>!nicoBrandImage(v)):rankImages;
  let result=await tryImages(initial.slice(0,type==="kick"?2:3),type==="kick"&&known.thumbnailVerified===true);
+ if(!result&&type==="kick")result=await tryImages((await kickChikuwaImages(url.origin,id)).slice(0,2),true);
  if(!result&&type==="kick")result=await tryImages((await kickReferenceImages(url.origin,id)).slice(0,1),true);
  if(!result&&type==="kick"){
   for(const suffix of ["/livestream",""]){
@@ -1147,7 +1172,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r50",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r51",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
