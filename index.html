@@ -30,6 +30,8 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 
 .rank-list li{grid-template-columns:86px minmax(0,1fr)}.rank-position{display:flex;flex-direction:column;align-items:center;gap:3px}.rank-position .rank-move{font-size:10px;font-weight:700;line-height:1.2}.rank-position .rank-prior{font-size:10px;white-space:nowrap;font-weight:500;line-height:1.2}.rank-sparkline{display:block;width:100%;height:29px;color:var(--muted);font-size:9px;font-weight:400;margin-top:2px}.rank-sparkline svg{display:block;width:100%;height:29px;overflow:visible}.rank-spark-guide{stroke:#e3eaf1;stroke-width:1}.rank-spark-path{fill:none;stroke:#3b94d8;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}.rank-spark-dot{fill:#3b94d8}@media(max-width:420px){.rank-list li{grid-template-columns:68px minmax(0,1fr);gap:6px}.rank-position .rank-prior{font-size:9px}.rank-position .rank-move{font-size:9px}}
 a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:var(--accent);font-weight:500}
+
+.rank-list li.rank-new-entry{border:2px solid #ea751e;background:#fff8ef;box-shadow:0 0 0 1px #ffe2c6}.rank-new-badge{display:block;background:#c73b10;color:#fff;font-size:19px;line-height:1.15;font-weight:900;letter-spacing:.04em;padding:5px 6px;border-radius:5px;max-width:100%;text-align:center}.rank-new-entry .rank-position .rank-prior{color:#a63b0b;font-weight:700}@media(max-width:420px){.rank-new-badge{font-size:16px;padding:5px 4px}}
 </style>
 </head>
 <body>
@@ -51,10 +53,10 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <div class="news-controls" role="group" aria-label="リリースの種類"><button type="button" data-filter="all" aria-pressed="true">すべて</button><button type="button" data-filter="stable" aria-pressed="false">正規版</button><button type="button" data-filter="beta" aria-pressed="false">β版</button><button type="button" data-filter="alpha" aria-pressed="false">α版</button></div>
 <p id="news-status" class="hint" role="status">更新情報を取得中…</p><ol id="news-list" class="news-list"></ol>
 </section>
-<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は直近10分の取得履歴を保存・復元します（取得範囲内の参考順位）。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
+<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は直近10分の取得履歴を保存・復元します。新規ランクインは60秒間NEW表示します（取得範囲内の参考順位）。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r26 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r27 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -178,6 +180,22 @@ function saveRankHistory(type,history){
 }
 const rankingHistory=new Map(["nico","kick"].map(type=>[type,readRankHistory(type)]));
 
+function isNewRankEntry(history,data,id,now){
+ if(!history||history.source!==data.source||history.metric!==data.metric||data.stale||!Array.isArray(history.samples))return false;
+ const t=Date.parse(data.fetchedAt),samples=history.samples.filter(s=>s.at<=t);
+ let current=samples[samples.length-1];
+ if(!current||current.at!==t||!Object.prototype.hasOwnProperty.call(current.ranks,id))return false;
+ for(let i=samples.length-2;i>=0;i--){
+  const prior=samples[i];
+  if(current.at-prior.at>45000)return false;
+  if(!Object.prototype.hasOwnProperty.call(prior.ranks,id)){
+   // A short/partial previous result is not proof that a stream was outside the top ten.
+   return Object.keys(prior.ranks).length===10&&now>=current.at&&now-current.at<60000;
+  }
+  current=prior;
+ }
+ return false;
+}
 function makeRankGraph(type,row){
  const chart=element("span","rank-sparkline"),data=rankGraphPaths(rankingHistory.get(type),row.id);
  if(data.count<2){chart.textContent="推移集計中";return chart;}
@@ -200,7 +218,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.26-r26";
+const rankingRevision="2026.11.26-r27";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -228,7 +246,9 @@ function renderRanking(panel,data,stale=false){
  for(const [i,row] of data.entries.slice(0,10).entries()){
   if(!(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(row.id))continue;
   const li=element("li"),rank=element("strong","rank-position",String(i+1)+"位"),body=element("div","rank-content"),top=element("div","rank-top"),heading=element("div"),link=element("a","rank-title",row.title||row.name||"タイトルなし");
-  if(!stale&&Number.isSafeInteger(row.rankChange)){const d=row.rankChange;rank.append(element("small","rank-move "+(d>0?"up":d<0?"down":"keep"),d>0?"▲ UP "+d:d<0?"▼ DOWN "+Math.abs(d):"→ KEEP"));rank.append(element("small","rank-prior","（前回"+row.previousRank+"位）"));}else rank.append(element("small","rank-prior","比較待ち"));rank.append(makeRankGraph(type,row));
+  const newlyRanked=!stale&&isNewRankEntry(rankingHistory.get(type),data,row.id,Date.now());
+  if(newlyRanked){li.classList.add("rank-new-entry");const badge=element("span","rank-new-badge","NEW");badge.setAttribute("aria-label","新規ランクイン");rank.append(badge);rank.append(element("small","rank-prior","新規ランクイン"));}
+  else if(!stale&&Number.isSafeInteger(row.rankChange)){const d=row.rankChange;rank.append(element("small","rank-move "+(d>0?"up":d<0?"down":"keep"),d>0?"▲ UP "+d:d<0?"▼ DOWN "+Math.abs(d):"→ KEEP"));rank.append(element("small","rank-prior","（前回"+row.previousRank+"位）"));}else rank.append(element("small","rank-prior","比較待ち"));rank.append(makeRankGraph(type,row));
   link.href=(type==="nico"?"https://live.nicovideo.jp/watch/":"https://kick.com/")+encodeURIComponent(row.id);
   heading.append(link);if(row.name){if(type==="nico"){const profile=element("a","rank-channel",row.name);profile.href=typeof row.profileUrl==="string"&&/^https:\/\/www\.nicovideo\.jp\/user\/[1-9]\d{0,14}$/.test(row.profileUrl)?row.profileUrl:"/api/live-profile?id="+encodeURIComponent(row.id);profile.title="配信者のユーザーページを開く";profile.target="_blank";profile.rel="noopener noreferrer";heading.append(profile);}else heading.append(element("div","rank-channel",row.name));}
   top.append(thumbnail(row,type),heading);const metrics=element("dl","rank-metrics");
