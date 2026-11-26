@@ -530,7 +530,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r53";
+const RANK_CACHE_REVISION="r54";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -570,14 +570,22 @@ function activityAggregate(events,end,coveredSince){
 function activityFeedUrl(raw){
  try{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||u.hostname!=="mpn.live.nicovideo.jp"||!/^\/(?:api\/view|(?:api|data)\/(?:segment|backward|packed))\//.test(u.pathname))return null;return u;}catch{return null;}
 }
+async function nicoFetchNoRedirect(url,options={},fetcher=fetch){
+ const response=await fetcher(url,{...options,redirect:"manual"});
+ if(response.status>=300&&response.status<400){
+  try{await response.body?.cancel();}catch{}
+  throw Error("HTTP "+response.status);
+ }
+ return response;
+}
 async function activityBytes(url,signal){
- const res=await fetch(url,{signal,redirect:"error"});if(!res.ok||!res.body)throw Error("feed unavailable");
+ const res=await nicoFetchNoRedirect(url,{signal});if(!res.ok||!res.body)throw Error("feed unavailable");
  const reader=res.body.getReader();const chunks=[];let total=0;
  try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>2097152)throw Error("feed too large");chunks.push(value);}}finally{try{await reader.cancel();}catch{}}
  const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
 }
 async function* activityFrames(url,signal){
- const res=await fetch(url,{signal,redirect:"error"});if(!res.ok||!res.body)throw Error("feed unavailable");
+ const res=await nicoFetchNoRedirect(url,{signal});if(!res.ok||!res.body)throw Error("feed unavailable");
  const reader=res.body.getReader();let pending=new Uint8Array(),total=0;
  try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152)throw Error("feed too large");const bytes=new Uint8Array(pending.length+value.length);bytes.set(pending);bytes.set(value,pending.length);let offset=0;
  while(offset<bytes.length){const c={pos:offset};let length;try{length=Number(activityVarint(bytes,c));}catch{break;}if(!Number.isSafeInteger(length)||length>1048576)throw Error("invalid frame");if(bytes.length-c.pos<length)break;yield activityFields(bytes.subarray(c.pos,c.pos+length));offset=c.pos+length;}pending=bytes.slice(offset);}
@@ -648,7 +656,7 @@ async function fetchNicoStatistics(endpoint,wantActivity=false){
   // A single deadline covers the handshake and short read. Do not abort
   // a successful upgraded connection at the old four-second deadline.
   const signal=AbortSignal.timeout(28000);
-  const response=await fetch(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},redirect:"error",signal});
+  const response=await nicoFetchNoRedirect(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},signal});
   ws=response.webSocket;
   if(!ws){const status=response.status;try{await response.body?.cancel();}catch{}return {watchStage:"視聴接続 HTTP "+status};}
   return await new Promise(resolve=>{
@@ -1162,7 +1170,7 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r46/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r54/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
   const fields=statisticsFields(row);
@@ -1203,7 +1211,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r53",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r54",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
