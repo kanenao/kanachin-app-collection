@@ -25,6 +25,8 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 .rank-move{font-size:10px;display:block;color:var(--muted)}
 
 .ranking-embed body{background:#fff}.ranking-embed header,.ranking-embed footer,.ranking-embed main>section:not(#rankings){display:none!important}.ranking-embed .wrap{width:calc(100% - 16px)}.ranking-embed .rankings{margin:8px 0}.rank-move.up{color:#187647}.rank-move.down{color:#b44242}.rank-move.keep{color:var(--muted)}
+
+.rank-eyebrow{font-size:10px;letter-spacing:.16em;font-weight:800;color:#526784}.rankings h2{margin:2px 0}.rank-panel{background:#f7f9fc;padding:12px}.rank-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;border-left:4px solid #2458ab;padding-left:9px}.rank-panel[data-platform="kick"] .rank-panel-head{border-color:#258345}.rank-count{font-size:10px;color:var(--muted);font-weight:750}.rank-mode{font-size:11px;color:var(--muted);margin:5px 0 9px}.rank-list li{grid-template-columns:38px minmax(0,1fr);gap:8px;background:white;border:1px solid var(--line);border-radius:9px;padding:9px;margin-bottom:7px}.rank-list li>strong{font-size:20px;text-align:center;color:var(--ink);line-height:1.25}.rank-list li:nth-child(1)>strong{color:#986b13}.rank-list li:nth-child(2)>strong{color:#66788d}.rank-list li:nth-child(3)>strong{color:#a16a43}.rank-move{font-size:9px;white-space:nowrap}.rank-content{min-width:0}.rank-top{display:grid;grid-template-columns:92px minmax(0,1fr);gap:8px;align-items:start}.rank-thumbbox{width:100%;aspect-ratio:16/9;position:relative;background:#e8eef5;border-radius:5px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#53657a;font-size:10px}.rank-thumbbox img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;margin:0}.rank-title{display:block;font-size:13px;line-height:1.4}.rank-channel{font-size:11px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}.rank-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 7px;margin:8px 0 0}.rank-metrics div{background:#f5f8fb;border-radius:5px;padding:4px 5px;min-width:0}.rank-metrics dt{font-size:10px;color:var(--muted)}.rank-metrics dd{font-size:12px;font-weight:700;margin:0;overflow-wrap:anywhere;line-height:1.5}.rank-delta{font-size:10px;color:#187647;font-weight:500}.rank-delta.negative{color:#b44242}.rank-unknown{color:var(--muted);font-weight:400!important}.rank-list li>div{display:block}.rank-status:not([hidden]){padding:5px 7px;background:#fff3d8;border-radius:5px}.rank-status[hidden]{display:none}@media(max-width:390px){.rank-top{grid-template-columns:76px minmax(0,1fr)}.rank-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -46,10 +48,10 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 <div class="news-controls" role="group" aria-label="リリースの種類"><button type="button" data-filter="all" aria-pressed="true">すべて</button><button type="button" data-filter="stable" aria-pressed="false">正規版</button><button type="button" data-filter="beta" aria-pressed="false">β版</button><button type="button" data-filter="alpha" aria-pressed="false">α版</button></div>
 <p id="news-status" class="hint" role="status">更新情報を取得中…</p><ol id="news-list" class="news-list"></ol>
 </section>
-<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><h2 id="ranking-title">配信ランキング（試験版）</h2><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位変動は同じ取得元の掲載範囲内で比較します。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><h3>ニコニコ生放送</h3><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><h3>Kick</h3><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
+<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位は取得範囲内の参考順位です。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r20 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r21 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -111,57 +113,75 @@ refresh.addEventListener("click",()=>load(true));load();
 setInterval(()=>{if(!document.hidden)load();},TTL);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-lastAttempt>=TTL)load();});
 
-const rankBusy=new Set(),rankLast=new Map();
-function nicoChanges(current,previous){
- const old=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:i+1}]));
- const elapsed=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
- return current.entries.map((r,i)=>{
-  const p=old.get(r.id),same=!!p&&current.source===previous?.source&&elapsed>=1&&elapsed<=180;
-  const delta=k=>same&&Number.isSafeInteger(r[k])&&Number.isSafeInteger(p[k])&&r[k]>=p[k]?r[k]-p[k]:null;
-  return {...r,rankChange:same?p.rank-i-1:null,visitorChange:delta("visitors"),commentChange:delta("comments")};
+function compareRanking(current,previous,type){
+ const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:i+1}]));
+ const seconds=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
+ return current.entries.slice(0,10).map((row,i)=>{
+  const old=before.get(row.id),same=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=180&&(type==="nico"||(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(old.startedAt)));
+  const delta=(key,monotonic=false)=>same&&Number.isSafeInteger(row[key])&&Number.isSafeInteger(old[key])&&(!monotonic||row[key]>=old[key])?row[key]-old[key]:null;
+  return {...row,rankChange:same?old.rank-i-1:null,viewerChange:delta("viewers"),visitorChange:delta("visitors",true),commentChange:delta("comments",true)};
  });
 }
-function deltaLabel(v){return Number.isSafeInteger(v)?"（"+(v>0?"+":"")+v.toLocaleString("ja-JP")+"）":"";}
-function kickChanges(current,previous){
- const old=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:i+1}]));
- const elapsed=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
- return current.entries.map((r,i)=>{
-  const p=old.get(r.id),start=Date.parse(r.startedAt),prior=Date.parse(p?.startedAt);
-  const comparable=!!p&&current.source===previous?.source&&elapsed>=1&&elapsed<=180&&Number.isFinite(start)&&start===prior;
-  return {...r,viewerChange:comparable&&Number.isSafeInteger(r.viewers)&&Number.isSafeInteger(p.viewers)?r.viewers-p.viewers:null,rankChange:comparable&&current.complete&&previous.complete?p.rank-i-1:null};
- });
+const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
+const rankingRevision="2026.11.26-r21";
+const numeric=v=>Number.isSafeInteger(v)&&v>=0;
+const format=v=>v.toLocaleString("ja-JP");
+function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+function durationLabel(r){const start=Date.parse(r.startedAt);if(Number.isFinite(start)&&start<=Date.now()){const m=Math.floor((Date.now()-start)/60000);return (m>=60?Math.floor(m/60)+"時間":"")+m%60+"分";}return typeof r.duration==="string"&&r.duration?r.duration:"未取得";}
+function imageUrl(value,type){try{const u=new URL(value);const hosts=type==="nico"?["nimg.jp","simg.jp"]:["kick.com"];return u.protocol==="https:"&&!u.username&&!u.password&&!u.port&&hosts.some(host=>u.hostname===host||u.hostname.endsWith("."+host))?u.href:"";}catch{return "";}}
+function thumbnail(row,type){
+ const box=element("div","rank-thumbbox","画像未取得"),urls=[...new Set([row.thumbnail,...(Array.isArray(row.thumbnailCandidates)?row.thumbnailCandidates:[])].map(v=>imageUrl(v,type)).filter(Boolean))].slice(0,8);
+ if(!urls.length)return box;
+ const img=element("img");img.alt="";img.loading="lazy";img.referrerPolicy="no-referrer";let i=0;
+ img.addEventListener("error",()=>{i++;if(i<urls.length)img.src=urls[i];else img.remove();});box.append(img);img.src=urls[0];return box;
 }
-function signedLabel(v){return Number.isSafeInteger(v)?(v>0?"+":"")+v.toLocaleString("ja-JP"):"観測待ち";}
-async function checkRankingHealth(){const node=document.querySelector("#rank-health");try{const r=await fetch("/api/health",{cache:"no-store",signal:AbortSignal.timeout(10000)});if(!r.ok||!r.headers.get("content-type")?.includes("application/json"))throw Error("HTTP "+r.status+"・API未稼働");const d=await r.json();if(d.status!=="ok")throw Error("API異常");node.hidden=d.revision==="2026.11.26-r20";node.textContent=node.hidden?"":"ランキングAPIの公開版が旧版です";}catch(e){node.hidden=false;node.textContent="API接続失敗："+String(e.message||"通信エラー")+"。Cloudflareのデプロイ設定を確認してください。";}}
-const rankPrevious=new Map(),rankState=new Map(),rankPanels=[...document.querySelectorAll(".rank-panel")];
-function numberLabel(v){return Number.isSafeInteger(v)&&v>=0?v.toLocaleString("ja-JP"):"未取得";}
-function durationLabel(r){if(typeof r.duration==="string"&&r.duration)return r.duration;const start=Date.parse(r.startedAt);if(!Number.isFinite(start)||start>Date.now())return "未取得";const m=Math.floor((Date.now()-start)/60000);return (m>=60?Math.floor(m/60)+"時間":"")+m%60+"分";}
-function showRanking(panel,data,stale=false){
- const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status");rankState.set(panel,{data,stale});list.replaceChildren();
- if(data.status!=="ok"){status.hidden=false;status.textContent=data.message||"取得できません";return;}
- status.textContent=stale?"前回取得分":"";status.hidden=!stale;
- for(const [index,r] of data.entries.slice(0,10).entries()){const li=document.createElement("li"),rank=document.createElement("strong"),body=document.createElement("div"),link=document.createElement("a"),meta=document.createElement("small");rank.textContent=String(index+1);if(!stale&&Number.isSafeInteger(r.rankChange)){const movement=document.createElement("small");movement.className="rank-move "+(r.rankChange>0?"up":r.rankChange<0?"down":"keep");movement.textContent=r.rankChange>0?"▲ UP "+r.rankChange:r.rankChange<0?"▼ DOWN "+Math.abs(r.rankChange):"→ KEEP";rank.append(movement);}link.href=panel.dataset.platform==="nico"?"https://live.nicovideo.jp/watch/"+encodeURIComponent(r.id):"https://kick.com/"+encodeURIComponent(r.id);link.textContent=r.title||r.name||"タイトルなし";meta.textContent=(r.name?r.name+" ／ ":"")+(panel.dataset.platform==="nico"?(Number.isSafeInteger(r.momentum)?"勢い "+numberLabel(r.momentum)+" pt ・ ":"")+"来場者 "+numberLabel(r.visitors)+deltaLabel(stale?null:r.visitorChange)+" ・ コメント "+numberLabel(r.comments)+deltaLabel(stale?null:r.commentChange)+" ・ 広告 "+numberLabel(r.advertising)+(Number.isSafeInteger(r.advertising)?" pt":"")+" ・ ギフト累計 "+numberLabel(r.gift)+(Number.isSafeInteger(r.gift)?" pt":"")+(Number.isSafeInteger(r.active10m)?" ・ アクティブ（直近10分） "+numberLabel(r.active10m)+"人":""):"同時視聴者 "+numberLabel(r.viewers)+" ・ 視聴者増減 "+signedLabel(stale?null:r.viewerChange)+"");meta.textContent+=" ・ 配信時間 "+durationLabel(r);if(typeof r.thumbnail==="string"&&r.thumbnail){try{const u=new URL(r.thumbnail);if(u.protocol==="https:"&&(panel.dataset.platform==="nico"?(u.hostname==="nimg.jp"||u.hostname.endsWith(".nimg.jp")||u.hostname==="simg.jp"||u.hostname.endsWith(".simg.jp")):(u.hostname==="kick.com"||u.hostname.endsWith(".kick.com")))&&!u.username&&!u.password&&!u.port){const image=document.createElement("img");image.className="rank-thumbnail";image.alt="";image.loading="lazy";image.referrerPolicy="no-referrer";image.src=u.href;const alternatives=panel.dataset.platform==="nico"&&Array.isArray(r.thumbnailCandidates)?r.thumbnailCandidates.filter(x=>typeof x==="string"&&x!==r.thumbnail).slice(0,7):[];let cursor=0;image.addEventListener("error",()=>{while(cursor<alternatives.length){try{const alt=new URL(alternatives[cursor++]);if(alt.protocol==="https:"&&(alt.hostname==="nimg.jp"||alt.hostname.endsWith(".nimg.jp")||alt.hostname==="simg.jp"||alt.hostname.endsWith(".simg.jp"))&&!alt.username&&!alt.password&&!alt.port){image.src=alt.href;return;}}catch{}}image.remove();});body.append(image);}}catch{}}body.append(link,meta);li.append(rank,body);list.append(li);}
- if(!data.entries.length){status.hidden=false;status.textContent="対象番組なし";}
+function metric(list,label,value,unit="",delta=null){
+ const wrap=element("div"),dt=element("dt","",label),dd=element("dd",numeric(value)?"":"rank-unknown",numeric(value)?format(value)+unit:"未取得");
+ if(Number.isSafeInteger(delta)){const d=element("span","rank-delta"+(delta<0?" negative":"")," "+(delta>0?"+":"")+format(delta));dd.append(d);}
+ wrap.append(dt,dd);list.append(wrap);
 }
-async function loadRanking(force=false,only=null){
+function timing(list,row){const wrap=element("div"),value=durationLabel(row);wrap.append(element("dt","","配信時間"),element("dd",value==="未取得"?"rank-unknown":"",value));list.append(wrap);}
+function renderRanking(panel,data,stale=false){
+ const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status"),type=panel.dataset.platform;
+ panel.querySelector(".rank-mode").textContent=data.metric|| (type==="nico"?"公開ランキング":"同時視聴者数");
+ status.hidden=!stale&&data.status==="ok"&&data.entries.length>0;
+ status.textContent=stale?"最新取得に失敗・前回取得分":data.status==="ok"?"対象番組なし":data.message||"取得できません";
+ if(data.status!=="ok"){list.replaceChildren();return;}
+ const items=[];
+ for(const [i,row] of data.entries.slice(0,10).entries()){
+  if(!(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(row.id))continue;
+  const li=element("li"),rank=element("strong","",String(i+1)),body=element("div","rank-content"),top=element("div","rank-top"),heading=element("div"),link=element("a","rank-title",row.title||row.name||"タイトルなし");
+  if(!stale&&Number.isSafeInteger(row.rankChange)){const d=row.rankChange;rank.append(element("small","rank-move "+(d>0?"up":d<0?"down":"keep"),d>0?"▲ "+d:d<0?"▼ "+Math.abs(d):"→ KEEP"));}
+  link.href=(type==="nico"?"https://live.nicovideo.jp/watch/":"https://kick.com/")+encodeURIComponent(row.id);
+  heading.append(link);if(row.name)heading.append(element("div","rank-channel",row.name));
+  top.append(thumbnail(row,type),heading);const metrics=element("dl","rank-metrics");
+  if(type==="nico"){
+   metric(metrics,"勢い",row.momentum,"pt");metric(metrics,"来場者",row.visitors,"人",stale?null:row.visitorChange);metric(metrics,"コメント",row.comments,"件",stale?null:row.commentChange);
+   metric(metrics,"広告",row.advertising,"pt");metric(metrics,"ギフト",row.gift,"pt");metric(metrics,"アクティブ（10分）",row.active10m,"人");
+  }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);}
+  timing(metrics,row);body.append(top,metrics);li.append(rank,body);items.push(li);
+ }
+ list.replaceChildren(...items);
+}
+async function checkRankingHealth(){const node=document.querySelector("#rank-health");try{const res=await fetch("/api/health",{cache:"no-store",signal:AbortSignal.timeout(10000)});if(!res.ok)throw Error("HTTP "+res.status);const d=await res.json();node.hidden=d.status==="ok"&&d.revision===rankingRevision;node.textContent=node.hidden?"":"公開版が旧版です。";}catch{node.hidden=false;node.textContent="ランキングAPIに接続できません。";}}
+async function loadRanking(force=false){
+ if(document.hidden&&!force)return;
  const button=document.querySelector("#rank-refresh");
- await Promise.all(rankPanels.filter(panel=>!only||panel.dataset.platform===only).map(async panel=>{
-  const type=panel.dataset.platform,interval=10000,now=Date.now();
-  if(rankBusy.has(type)||now-(rankLast.get(type)||0)<(force?10000:interval-250))return;
+ await Promise.all(rankPanels.map(async panel=>{
+  const type=panel.dataset.platform,now=Date.now();if(rankBusy.has(type)||now-(rankLast.get(type)||0)<(force?10000:9750))return;
   rankBusy.add(type);rankLast.set(type,now);button.disabled=true;
   try{
-   const response=await fetch("/api/rankings/"+type,{cache:"no-store",signal:AbortSignal.timeout(45000)});
-   if(!response.headers.get("content-type")?.includes("application/json"))throw Error("API応答がJSONではありません (HTTP "+response.status+")：Workerの公開設定を確認");
-   const data=await response.json();if(data.status==="unconfigured"){rankPrevious.delete(type);showRanking(panel,data);return;}
-   if(!response.ok||data.status!=="ok"||!Array.isArray(data.entries))throw Error(typeof data.message==="string"?data.message:"API応答エラー (HTTP "+response.status+")");
+   const res=await fetch("/api/rankings/"+type,{cache:"no-store",signal:AbortSignal.timeout(45000)});const data=await res.json();if(!res.ok||data.status!=="ok"||!Array.isArray(data.entries)||!Number.isFinite(Date.parse(data.fetchedAt)))throw Error(data.message||"取得失敗");
    const previous=rankPrevious.get(type);
-   if(previous?.fetchedAt===data.fetchedAt){const state=rankState.get(panel);if(state?.stale||state?.data!==previous)showRanking(panel,previous);return;}
-   data.entries=type==="kick"?kickChanges(data,previous):nicoChanges(data,previous);
-   rankPrevious.set(type,data);showRanking(panel,data);
-  }catch(e){const previous=rankPrevious.get(type);showRanking(panel,previous||{status:"error",message:e?.name==="TimeoutError"?"ランキングAPI応答タイムアウト":String(e?.message||"通信失敗").slice(0,500)},!!previous);if(previous)panel.querySelector(".rank-status").append(" ／ 最新取得失敗");}
+   if(data.stale){renderRanking(panel,previous||data,true);return;}
+   if(previous?.fetchedAt===data.fetchedAt){if(!panel.querySelector(".rank-status").hidden)renderRanking(panel,previous);return;}
+   data.entries=compareRanking(data,previous,type);rankPrevious.set(type,data);renderRanking(panel,data);
+  }catch(e){const previous=rankPrevious.get(type);renderRanking(panel,previous||{status:"error",entries:[],message:String(e?.message||"通信失敗").slice(0,180)},!!previous);}
   finally{rankBusy.delete(type);button.disabled=rankBusy.size>0;}
  }));
 }
-document.querySelector("#rank-refresh").addEventListener("click",()=>{checkRankingHealth();loadRanking(true);});checkRankingHealth();loadRanking();setInterval(()=>{if(!document.hidden)loadRanking();},10000);
+document.querySelector("#rank-refresh").addEventListener("click",()=>{checkRankingHealth();loadRanking(true);});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadRanking();});
+checkRankingHealth();loadRanking();setInterval(loadRanking,10000);
 </script>
 </body></html>
