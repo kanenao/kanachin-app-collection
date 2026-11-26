@@ -54,7 +54,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 @media(max-width:1050px){.rank-panels{grid-template-columns:1fr}.ranking-page{width:min(880px,calc(100% - 28px))}}@media(max-width:480px){.ranking-page{width:calc(100% - 16px)}.rank-panel{padding:8px}.rank-list li{grid-template-columns:59px minmax(0,1fr);gap:6px;padding:8px}.ranking-page .rank-top,.rank-top-three .rank-top{grid-template-columns:90px minmax(0,1fr)}.rank-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.rank-metrics dd{font-size:13px}.rank-list li>strong{font-size:20px}.rank-top-three .rank-position{font-size:23px}.rank-position .rank-move{font-size:9px}.rank-title{font-size:13px}.rankings>.heading{padding:14px}.rank-metrics .rank-overall dd{font-size:20px}}
 @media(prefers-reduced-motion:reduce){.rank-list li,.rank-metrics dd{animation:none!important;transition:none!important}}
 .rank-account{display:flex;align-items:center;gap:5px 8px;flex-wrap:wrap;margin-top:4px}.rank-account .rank-channel{margin:0;max-width:100%}
-.rank-profile-stats{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:5px}.rank-profile-chip{border:1px solid #8eb3ed;background:#fff;color:#24528b;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.rank-profile-chip.pending{color:#74849a;border-color:#d6e1f1;font-weight:400}
+
 .rank-kick-account{display:flex;align-items:center;gap:7px;width:fit-content;max-width:100%;margin-top:5px;text-decoration:none}.rank-kick-account .rank-channel{margin:0;color:var(--platform);overflow-wrap:anywhere}.rank-kick-account:hover .rank-channel{text-decoration:underline}
 .rank-nico-account{text-decoration:none;width:fit-content;max-width:100%;flex-wrap:nowrap}.rank-nico-account:hover .rank-channel{text-decoration:underline}
 
@@ -90,7 +90,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 .rank-program-info{min-width:0}
 .rank-title{font-size:14px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .rank-title:focus-visible,.rank-title:hover{-webkit-line-clamp:unset}
-.rank-profile-stats{gap:3px;margin-top:3px}.rank-profile-chip{font-size:10px;padding:0 4px}
+
 
 .rank-account,.rank-kick-account{margin-top:3px;gap:5px}
 .rank-metrics{grid-template-columns:minmax(116px,1.3fr) repeat(4,minmax(64px,1fr));grid-auto-rows:minmax(37px,auto);gap:3px 5px;margin:0;align-items:stretch;min-width:0}
@@ -114,7 +114,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <main class="wrap ranking-page">
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h1 id="ranking-title">LIVE配信ランキング</h1></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各サービスの取得元上位10番組を独自総合スコアで比較。数値と順位は共有ライブ接続で順次反映します。未取得項目は採点対象外です。</p><details class="rank-explanation"><summary>集計方法・表示の見方</summary><p>全配信の順位ではなく、取得元の上位10番組を比較しています。配信元の定期取得が必要な項目はサーバー側で共有取得します。未取得項目は全候補の採点から外して暫定順位を表示します。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p></details><div class="rank-legend"><span><b class="up">▲ UP</b> 上昇</span><span><b class="down">▼ DOWN</b> 下降</span><span><b>→ KEEP</b> 維持</span><span><b class="new">NEW</b> 新規</span><span>未取得は採点対象外・総合100点満点</span></div><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><p class="hint" id="rank-live-status" role="status" aria-live="polite">共有ライブ接続準備中…</p><div class="rank-view-controls" role="group" aria-label="表示する配信サービス"><button type="button" data-rank-view="all" aria-pressed="true">すべて</button><button type="button" data-rank-view="nico" aria-pressed="false">ニコニコ生放送</button><button type="button" data-rank-view="kick" aria-pressed="false">Kick</button><span class="rank-view-hint">横長一覧 · 各サービス TOP 10</span></div><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><div class="rank-toolbar"><label>並び順 <select class="rank-sort" aria-label="ニコニコ生放送の並び順"><option value="overall">総合勢い順</option><option value="momentum">勢いpt順</option><option value="visitors">来場者順</option><option value="comments">コメント順</option><option value="active">アクティブ10分順</option><option value="advertising">広告pt順</option><option value="gift">ギフトpt順</option></select></label><span class="rank-updated">取得時刻 —</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><div class="rank-toolbar"><label>並び順 <select class="rank-sort" aria-label="Kickの並び順"><option value="overall">総合勢い順</option><option value="viewers">同接順</option><option value="comments">チャット30秒順</option><option value="active">アクティブ10分順</option><option value="kicksGift">KICKs順</option><option value="giftedSubscriptions">ギフトサブスク順</option></select></label><span class="rank-updated">取得時刻 —</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r92 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r93 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 function recordRankHistory(previous,data,type){
@@ -246,7 +246,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r92";
+const rankingRevision="2026.11.27-r93";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -450,7 +450,7 @@ async function refreshNicoStatistics(){
   }pending+=decoder.decode();if(pending.trim())applyNicoStatistics(JSON.parse(pending),panel);
   }finally{reader.releaseLock();}
  }catch(e){const mode=panel?.querySelector(".rank-mode");if(mode)mode.title="追加統計: "+String(e?.message||"通信失敗").slice(0,100);}
- finally{nicoStatisticsBusy=false;if(!liveSocketOpen())refreshNicoProfilesFallback();}
+ finally{nicoStatisticsBusy=false;}
 }
 
 function rankingSortValue(row,type,mode,now){
@@ -485,22 +485,6 @@ function animateRankCards(items,before,enabled){
  }
 }
 function nicoDisplayIdentity(row){const ids=new Set();const m=typeof row.profileUrl==="string"?/^https:\/\/(?:www\.)?nicovideo\.jp\/user\/([1-9]\d{0,14})\/?$/.exec(row.profileUrl):null;if(m)ids.add(m[1]);if(/^[1-9]\d{0,14}$/.test(String(row.userId??"")))ids.add(String(row.userId));if(/^[1-9]\d{0,14}$/.test(String(row.historyOwner??"")))ids.add(String(row.historyOwner));if(row.providerKind==="channel"||row.channelOwner||row.channelId){const id=String(row.channelId||row.channelOwner||"");return {userId:"",channelId:/^[1-9]\d{0,14}$/.test(id)?id:""};}return {userId:ids.size===1?[...ids][0]:"",channelId:""};}
-const nicoPublicProfiles=new Map();let nicoProfileBusy=false;
-async function refreshNicoProfilesFallback(){if(nicoProfileBusy||document.hidden)return;nicoProfileBusy=true;try{const res=await fetch("/api/nico-profiles",{cache:"no-store",signal:AbortSignal.timeout(25000)});if(res.ok)applyNicoProfiles(await res.json(),rankPanels.find(p=>p.dataset.platform==="nico"));}catch{}finally{nicoProfileBusy=false;}}
-function applyNicoProfiles(data,panel){
- if(!Array.isArray(data?.profiles)||!panel)return;
- const base=rankPrevious.get("nico");if(!base)return;
- const activeIds=new Set(base.entries.map(row=>nicoDisplayIdentity(mergeNicoSupplement(row)).userId).filter(Boolean));let changed=false;
- for(const row of data.profiles){
-  if(!activeIds.has(row.userId)||!Number.isFinite(row.checkedAt))continue;
-  const old=nicoPublicProfiles.get(row.userId);if(old&&old.checkedAt>row.checkedAt)continue;
-  const next={userId:row.userId,checkedAt:row.checkedAt,stage:row.stage};
-  for(const key of ["followeeCount","followerCount","userLevel"])next[key]=Number.isSafeInteger(row[key])&&row[key]>=0?row[key]:old&&Date.now()-old.checkedAt<=900000?old[key]??null:null;
-  if(JSON.stringify(old)!==JSON.stringify(next)){nicoPublicProfiles.set(row.userId,next);changed=true;}
- }
- for(const id of nicoPublicProfiles.keys())if(!activeIds.has(id))nicoPublicProfiles.delete(id);
- if(changed)renderRanking(panel,base,!panel.querySelector(".rank-status").hidden);
-}
 function renderRanking(panel,data,stale=false){
  if(panel.dataset.platform==="nico"&&Array.isArray(data.entries)){const entries=data.entries.map(mergeNicoSupplement);data={...data,entries,coverage:data.coverage?{...data.coverage,advertising:entries.filter(x=>numeric(x.advertising)).length,gift:entries.filter(x=>numeric(x.gift)).length,active10m:entries.filter(x=>numeric(x.active10m)).length}:undefined};}
  const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status"),type=panel.dataset.platform;
@@ -533,7 +517,6 @@ function renderRanking(panel,data,stale=false){
    account.title="配信者ページを開く";account.target="_blank";account.rel="noopener noreferrer";
    account.append(profile);
    heading.append(account);
-   if(ids.userId){const profileData=nicoPublicProfiles.get(ids.userId),profileStats=element("div","rank-profile-stats");for(const [label,key] of [["フォロワー","followerCount"],["フォロー","followeeCount"],["Lv.","userLevel"]]){const value=profileData?.[key],known=Number.isSafeInteger(value)&&value>=0;const chip=element("span","rank-profile-chip"+(known?"":" pending"),label+(key==="userLevel"?"":" ")+(known?format(value):"—"));chip.title=known?"公開プロフィール・"+new Date(profileData.checkedAt).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"}):profileData?.stage||"プロフィール取得待ち";profileStats.append(chip);}heading.append(profileStats);}
   }else{const account=element("a","rank-kick-account");account.href="https://kick.com/"+encodeURIComponent(row.id);account.target="_blank";account.rel="noopener noreferrer";account.append(element("span","rank-channel",row.name||row.id));heading.append(account);}
   const thumb=thumbnail(row,type),existing=existingRows.get(row.id);
   if(existing&&existing.querySelector(".rank-thumbbox")===thumb){top.append(heading);}else{top.append(thumb,heading);}
@@ -622,7 +605,6 @@ const liveStatus=message=>{document.querySelector("#rank-live-status").textConte
 function liveSocketOpen(){return liveSocket?.readyState===WebSocket.OPEN;}
 function liveFrame(frame){
  if(frame.kind==="state"){liveStatus(frame.data?.message||"共有ライブ接続中");if(frame.data?.paused)for(const panel of rankPanels){const old=rankPrevious.get(panel.dataset.platform);if(old)renderRanking(panel,old,true);}return;}
- if(frame.kind==="nico-profiles"){applyNicoProfiles(frame.data,rankPanels.find(p=>p.dataset.platform==="nico"));return;}
  if(frame.kind==="nico-stats"){const panel=rankPanels.find(p=>p.dataset.platform==="nico");if(panel)applyNicoStatistics(frame.data,panel);return;}
  if(!["nico","kick"].includes(frame.kind)||!frame.data)return;
  const type=frame.kind,panel=rankPanels.find(p=>p.dataset.platform===type),data=frame.data,at=Date.parse(data.fetchedAt);
