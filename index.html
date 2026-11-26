@@ -50,10 +50,10 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 <div class="news-controls" role="group" aria-label="リリースの種類"><button type="button" data-filter="all" aria-pressed="true">すべて</button><button type="button" data-filter="stable" aria-pressed="false">正規版</button><button type="button" data-filter="beta" aria-pressed="false">β版</button><button type="button" data-filter="alpha" aria-pressed="false">α版</button></div>
 <p id="news-status" class="hint" role="status">更新情報を取得中…</p><ol id="news-list" class="news-list"></ol>
 </section>
-<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は閲覧中の直近10分（取得範囲内の参考順位）です。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
+<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は直近10分の取得履歴を保存・復元します（取得範囲内の参考順位）。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r24 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r25 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -121,7 +121,7 @@ function recordRankHistory(previous,data,type){
  const compatible=previous&&previous.source===data.source&&previous.metric===data.metric;
  const old=compatible?previous.samples:[];
  if(old.length&&t<=old[old.length-1].at)return previous;
- const ranks={};
+ const ranks=Object.create(null);
  for(const [i,row] of data.entries.slice(0,10).entries()){
   if((type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(row.id))ranks[row.id]=i+1;
  }
@@ -141,7 +141,42 @@ function rankGraphPaths(history,id){
  }
  flush();return {paths,points,count};
 }
-const rankingHistory=new Map();
+function validateRankHistory(value,type,now){
+ if(!value||typeof value.source!=="string"||typeof value.metric!=="string"||value.source.length>200||value.metric.length>200||!Array.isArray(value.samples))return null;
+ const samples=[];
+ for(const s of value.samples.slice(-61)){
+  if(!Number.isFinite(s?.at)||s.at<now-600000||s.at>now+30000||!s.ranks||typeof s.ranks!=="object"||Array.isArray(s.ranks)||samples.length&&s.at<=samples[samples.length-1].at)continue;
+  const ranks=Object.create(null),used=new Set();
+  for(const [id,rank] of Object.entries(s.ranks).slice(0,10)){
+   if(!(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(id)||!Number.isInteger(rank)||rank<1||rank>10||used.has(rank))continue;
+   ranks[id]=rank;used.add(rank);
+  }
+  samples.push({at:s.at,ranks});
+ }
+ return samples.length?{source:value.source,metric:value.metric,samples}:null;
+}
+function latestSavedHistory(memory,saved){
+ if(!memory)return saved;if(!saved)return memory;
+ const a=memory.samples[memory.samples.length-1].at,b=saved.samples[saved.samples.length-1].at;
+ if(memory.source!==saved.source||memory.metric!==saved.metric)return b>a?saved:memory;
+ const samples=new Map([...saved.samples,...memory.samples].map(s=>[s.at,s]));
+ return {...memory,samples:[...samples.values()].sort((x,y)=>x.at-y.at).slice(-61)};
+}
+function previousRankSnapshot(history,data){
+ if(!history||history.source!==data.source||history.metric!==data.metric)return null;
+ const t=Date.parse(data.fetchedAt),s=[...history.samples].reverse().find(s=>s.at<t);
+ if(!s||t-s.at>180000)return null;
+ return {source:history.source,metric:history.metric,fetchedAt:new Date(s.at).toISOString(),entries:Object.entries(s.ranks).sort((a,b)=>a[1]-b[1]).map(([id,rank])=>({id,rank}))};
+}
+const rankHistoryKey=type=>"kanachin-ranking-history-v1:"+type;
+function readRankHistory(type,now=Date.now()){
+ try{const raw=localStorage.getItem(rankHistoryKey(type));if(!raw||raw.length>100000)return null;return validateRankHistory(JSON.parse(raw),type,now);}catch{return null;}
+}
+function saveRankHistory(type,history){
+ try{if(history)localStorage.setItem(rankHistoryKey(type),JSON.stringify(history));else localStorage.removeItem(rankHistoryKey(type));}catch{}
+}
+const rankingHistory=new Map(["nico","kick"].map(type=>[type,readRankHistory(type)]));
+
 function makeRankGraph(type,row){
  const chart=element("span","rank-sparkline"),data=rankGraphPaths(rankingHistory.get(type),row.id);
  if(data.count<2){chart.textContent="推移集計中";return chart;}
@@ -154,7 +189,7 @@ function makeRankGraph(type,row){
 }
 
 function compareRanking(current,previous,type){
- const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:i+1}]));
+ const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:r.rank??i+1}]));
  const seconds=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
  return current.entries.slice(0,10).map((row,i)=>{
   const old=before.get(row.id),same=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=180&&(type==="nico"||(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(old.startedAt)));
@@ -164,7 +199,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.26-r24";
+const rankingRevision="2026.11.26-r25";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -216,7 +251,9 @@ async function loadRanking(force=false){
    const previous=rankPrevious.get(type);
    if(data.stale){renderRanking(panel,previous||data,true);return;}
    if(previous?.fetchedAt===data.fetchedAt){if(!panel.querySelector(".rank-status").hidden)renderRanking(panel,previous);return;}
-   rankingHistory.set(type,recordRankHistory(rankingHistory.get(type),data,type));data.entries=compareRanking(data,previous,type);rankPrevious.set(type,data);renderRanking(panel,data);
+   const history=latestSavedHistory(validateRankHistory(rankingHistory.get(type),type,now),readRankHistory(type,now));
+   const updated=recordRankHistory(history,data,type);rankingHistory.set(type,updated);saveRankHistory(type,updated);
+   data.entries=compareRanking(data,previous||previousRankSnapshot(history,data),type);rankPrevious.set(type,data);renderRanking(panel,data);
   }catch(e){const previous=rankPrevious.get(type);renderRanking(panel,previous||{status:"error",entries:[],message:String(e?.message||"通信失敗").slice(0,180)},!!previous);}
   finally{rankBusy.delete(type);button.disabled=rankBusy.size>0;}
  }));
