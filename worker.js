@@ -383,23 +383,101 @@ function statisticsEndpoint(data,id){
 }
 // One bounded read of public program statistics. Never open the comment
 // server or fetch a media playlist; no account credentials or tokens are stored.
-async function fetchNicoStatistics(endpoint){
+function activityVarint(bytes,cursor){
+ let value=0n;
+ for(let shift=0n;shift<70n&&cursor.pos<bytes.length;shift+=7n){const b=bytes[cursor.pos++];value|=BigInt(b&127)<<shift;if(b<128)return value;}
+ throw Error("incomplete varint");
+}
+function activityFields(bytes,repeated,collect){
+ if(!(bytes instanceof Uint8Array))throw Error("invalid message");
+ const result=new Map(),cursor={pos:0};
+ while(cursor.pos<bytes.length){
+  const tag=Number(activityVarint(bytes,cursor)),kind=tag%8;let value;
+  if(kind===0)value=activityVarint(bytes,cursor);
+  else{const size=kind===2?Number(activityVarint(bytes,cursor)):kind===5?4:kind===1?8:-1;if(!Number.isSafeInteger(size)||size<0||size>bytes.length-cursor.pos)throw Error("invalid field");value=bytes.subarray(cursor.pos,cursor.pos+size);cursor.pos+=size;}
+  const key=Math.floor(tag/8);if(key===repeated)collect(value);result.set(key,value);
+ }
+ return result;
+}
+function activityAggregate(events,end,coveredSince){
+ if(!Number.isSafeInteger(end)||!Number.isSafeInteger(coveredSince)||coveredSince>end)return {active10m:null,active60s:null};
+ const count=seconds=>{if(coveredSince>end-seconds)return null;const users=new Set();for(const e of events){if(e.at>end-seconds&&e.at<=end){if(!e.sender)return null;users.add(e.sender);}}return users.size;};
+ return {active10m:count(600),active60s:count(60)};
+}
+function activityFeedUrl(raw){
+ try{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||!u.hostname.endsWith(".nicovideo.jp")||!/^\/api\/(?:view|segment|backward|packed)\//.test(u.pathname))return null;return u;}catch{return null;}
+}
+async function activityBytes(url,signal){
+ const res=await fetch(url,{signal,redirect:"error"});if(!res.ok||!res.body)throw Error("feed unavailable");
+ const reader=res.body.getReader();const chunks=[];let total=0;
+ try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>2097152)throw Error("feed too large");chunks.push(value);}}finally{try{await reader.cancel();}catch{}}
+ const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
+}
+async function* activityFrames(url,signal){
+ const res=await fetch(url,{signal,redirect:"error"});if(!res.ok||!res.body)throw Error("feed unavailable");
+ const reader=res.body.getReader();let pending=new Uint8Array(),total=0;
+ try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152)throw Error("feed too large");const bytes=new Uint8Array(pending.length+value.length);bytes.set(pending);bytes.set(value,pending.length);let offset=0;
+ while(offset<bytes.length){const c={pos:offset};let length;try{length=Number(activityVarint(bytes,c));}catch{break;}if(!Number.isSafeInteger(length)||length>1048576)throw Error("invalid frame");if(bytes.length-c.pos<length)break;yield activityFields(bytes.subarray(c.pos,c.pos+length));offset=c.pos+length;}pending=bytes.slice(offset);}
+ if(pending.length)throw Error("truncated feed");
+ }finally{try{await reader.cancel();}catch{}}
+}
+// Adapted from the uploaded worker/activity.mjs. One closed history snapshot,
+// no continuous listener, no persisted comment contents or sender identifiers.
+async function sampleNicoActivity(raw){
+ const view=activityFeedUrl(raw);if(!view)return null;
+ const signal=AbortSignal.timeout(9500),now=Math.floor(Date.now()/1000),decode=b=>activityFeedUrl(new TextDecoder().decode(b));
+ view.searchParams.set("at","now");let segment=null;
+ try{
+  for await(const e of activityFrames(view,signal)){
+   if(e.has(2)){
+    const back=activityFields(e.get(2)),end=Number(activityFields(back.get(1)).get(1));
+    if(end<=now+2&&end>=now-180&&back.has(2)){const url=decode(activityFields(back.get(2)).get(1));if(url){segment={end,url,packed:true};break;}}
+   }
+   const raw=e.get(3)||e.get(1);if(!raw)continue;
+   const info=activityFields(raw),start=Number(activityFields(info.get(1)).get(1)),end=Number(activityFields(info.get(2)).get(1)),url=decode(info.get(3));
+   if(url&&start<end&&end<=now&&end>=now-180){segment={start,end,url,packed:false};break;}
+  }
+  if(!segment)return null;
+  const events=[];let covered=segment.end,unknownTime=false;
+  function record(chunk){
+   if(!chunk.has(2))return;
+   const message=activityFields(chunk.get(2)),raw=message.get(1)||message.get(20);if(!raw)return;
+   const at=Number(activityFields(activityFields(chunk.get(1)).get(2)).get(1));if(!Number.isSafeInteger(at)){unknownTime=true;return;}
+   if(at<segment.end-600||at>segment.end)return;
+   const chat=activityFields(raw),sender=chat.has(5)?"u"+String(chat.get(5)):chat.get(6)?.length?"h"+new TextDecoder().decode(chat.get(6)):null;
+   if(events.length>=20000)throw Error("too many comments");events.push({at,sender});
+  }
+  if(segment.packed){
+   let url=segment.url,oldest=segment.end,seen=new Set();
+   for(let i=0;url&&i<4;i++){
+    if(seen.has(url.href))throw Error("repeated history");seen.add(url.href);
+    const packet=activityFields(await activityBytes(url,signal),1,b=>{const chunk=activityFields(b),at=Number(activityFields(activityFields(chunk.get(1)).get(2)).get(1));if(!Number.isSafeInteger(at)){unknownTime=true;return;}oldest=Math.min(oldest,at);record(chunk);});
+    covered=oldest;if(covered<=segment.end-600)break;
+    url=packet.has(2)?decode(activityFields(packet.get(2)).get(1)):null;
+   }
+  }else{for await(const chunk of activityFrames(segment.url,signal))record(chunk);covered=segment.start;}
+  if(unknownTime)return null;
+  return {...activityAggregate(events,segment.end,covered),activitySampleEnd:segment.end};
+ }catch{return null;}
+}
+
+async function fetchNicoStatistics(endpoint,wantActivity=false){
  if(!endpoint)return null;
  let ws;
  try{
   const response=await fetch(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},redirect:"error",signal:AbortSignal.timeout(4000)});
   ws=response.webSocket;if(!ws)return null;
   return await new Promise(resolve=>{
-   let done=false,latest=null,timer;
-   function finish(){if(done)return;done=true;clearTimeout(timer);try{ws.close(1000,"statistics complete");}catch{}resolve(latest);}
+   let done=false,latest=null,timer,viewUri=null;
+   function finish(){if(done)return;done=true;clearTimeout(timer);try{ws.close(1000,"statistics complete");}catch{}resolve(latest||viewUri?{...latest,viewUri}:null);}
    function send(value){try{ws.send(JSON.stringify(value));}catch{finish();}}
    timer=setTimeout(finish,6500);
    ws.addEventListener("close",finish);ws.addEventListener("error",finish);
    ws.addEventListener("message",event=>{
     const stat=parseStatsMessage(event.data);
-    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};if(latest.advertising!==null&&latest.gift!==null)finish();return;}
+    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};if(latest.advertising!==null&&latest.gift!==null&&(!wantActivity||viewUri))finish();return;}
     if(typeof event.data!=="string"||event.data.length>65536)return;
-    try{const message=JSON.parse(event.data);if(message.type==="ping"){send({type:"pong"});send({type:"keepSeat"});}else if(message.type==="disconnect"||message.type==="error")finish();}catch{}
+    try{const message=JSON.parse(event.data);if(message.type==="ping"){send({type:"pong"});send({type:"keepSeat"});}else if(message.type==="messageServer"&&wantActivity){const view=activityFeedUrl(message.data?.viewUri);if(view){viewUri=view.href;if(latest?.advertising!=null&&latest?.gift!=null)finish();}}else if(message.type==="disconnect"||message.type==="error")finish();}catch{}
    });
    try{ws.accept();send({type:"startWatching",data:{reconnect:false}});}catch{finish();}
   });
@@ -420,11 +498,11 @@ function publicNicoDetail(html,id){
 }
 // Bounded lookups with per-program Cache API entries. No shared I/O promises.
 async function enrichPublicNico(rows,origin){
- const candidates=rows.slice(0,10).filter(r=>!r.profileUrl||!r.thumbnailUrl||r.advertising==null||r.gift==null||!r.startedAt||r.visitors==null||r.comments==null);
+ const candidates=rows.slice(0,10).filter(r=>!r.profileUrl||!r.thumbnailUrl||r.advertising==null||r.gift==null||r.active10m==null||!r.startedAt||r.visitors==null||r.comments==null);
  const missing=[];
- function apply(row,detail){if(!detail)return;for(const k of ["name","profileUrl","advertising","gift","visitors","comments","startedAt","thumbnailUrl"])if((row[k]==null||row[k]==="")&&detail[k]!=null&&detail[k]!=="")row[k]=detail[k];row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),...(detail.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);}
- for(const row of candidates){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r26");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
- await Promise.all(missing.slice(0,4).map(async({row,key})=>{let detail=null;try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail){const endpoint=detail.statisticsEndpoint;delete detail.statisticsEndpoint;if((row.advertising==null&&detail.advertising==null)||(row.gift==null&&detail.gift==null)){const stats=await fetchNicoStatistics(endpoint);if(stats)for(const k of ["advertising","gift","visitors","comments"])if(stats[k]!=null)detail[k]=stats[k];}}}catch{}apply(row,detail);try{await caches.default.put(key,json(detail,200,"public, max-age="+(detail&&detail.advertising!=null&&detail.gift!=null?120:30)));}catch{}}));
+ function apply(row,detail){if(!detail)return;for(const k of ["name","profileUrl","advertising","gift","visitors","comments","startedAt","thumbnailUrl","active10m","active60s","activitySampleEnd"])if((row[k]==null||row[k]==="")&&detail[k]!=null&&detail[k]!=="")row[k]=detail[k];row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),...(detail.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);}
+ for(const row of candidates){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r29");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
+ await Promise.all(missing.slice(0,2).map(async({row,key})=>{let detail=null;try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail){const endpoint=detail.statisticsEndpoint;delete detail.statisticsEndpoint;const wantActivity=row.active10m==null;if((row.advertising==null&&detail.advertising==null)||(row.gift==null&&detail.gift==null)||wantActivity){const stats=await fetchNicoStatistics(endpoint,wantActivity);if(stats){for(const k of ["advertising","gift","visitors","comments"])if(stats[k]!=null)detail[k]=stats[k];if(wantActivity&&stats.viewUri){const activity=await sampleNicoActivity(stats.viewUri);if(activity)Object.assign(detail,activity);}}}}}catch{}apply(row,detail);try{await caches.default.put(key,json(detail,200,"public, max-age="+(detail&&detail.advertising!=null&&detail.gift!=null&&detail.active10m!=null?60:30)));}catch{}}));
 }
 
 function parseArchiveRanking(html,service){
@@ -515,7 +593,7 @@ async function nicoRanking(origin){
  const results=await Promise.all(sources.map(async source=>{if(source.name==="nico-ran.stream")return fetchNicoReferencePage(origin,source);try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];if(source.name==="勢いランキング")rows=parseArchiveRanking(html,"nico");else{try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);}if(source.name==="ちくわちゃん")supplementNicoHtml(html,rows);if(source.name==="nico-ran.stream"){const cards=parseNicoRanCards(html);if(cards.length){const map=new Map(rows.map(r=>[r.liveId,r]));rows=cards.map(card=>{const r=map.get(card.liveId)||{};return {...r,...card,name:card.name||r.name||"",profileUrl:card.profileUrl||r.profileUrl||"",visitors:card.visitors??r.visitors??null,comments:card.comments??r.comments??null,active10m:card.active10m??r.active10m??null,advertising:card.advertising??r.advertising??null,gift:card.gift??r.gift??null};});}}return {source,rows,reason:rows.length?"":"番組データなし"};}catch(e){return {source,rows:[],reason:diagnostic(e)};}}));
  const best=selectNicoReference(results)||selectRankingSource(results.filter(r=>r.source.name!=="nico-ran.stream"))||selectRankingSource(results);if(best){const preferred=results.find(r=>r.source.name==="nico-ran.stream");if(preferred){const map=new Map(preferred.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=map.get(row.liveId);if(other){for(const k of ["advertising","gift","active10m"])if(other[k]!=null)row[k]=other[k];}}}}if(best)for(const result of results){if(result!==best){const lookup=new Map(result.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=lookup.get(row.liveId);if(!other)continue;for(const k of ["name","profileUrl","visitors","comments","gift","advertising","startedAt","duration","thumbnailUrl","active10m","momentum"])if((row[k]==null||row[k]==="")&&other[k]!=null&&other[k]!=="")row[k]=other[k];}}}
  const rss=await rssRequest;if(best){for(const row of best.rows.slice(0,10)){const image=rankingImageUrl(rss.get(row.liveId));if(image){row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),image].filter(Boolean))].slice(0,8);if(!row.thumbnailUrl)row.thumbnailUrl=image;}}await enrichPublicNico(best.rows,origin);}
- if(best)return {source:best.source.name,sourceUrl:best.source.url,complete:false,metric:best.source.name==="勢いランキング"?"公開勢いポイント順":best.source.name==="nico-ran.stream"?"nico-ran.stream掲載順（参考順位）":"公開掲載順（参考順位）",coverage:nicoReferenceCoverage(best.rows.slice(0,10),results.find(r=>r.source.name==="nico-ran.stream")),fetchedAt:new Date().toISOString(),entries:best.rows.slice(0,10).map(r=>({id:r.liveId,name:r.name,profileUrl:r.profileUrl||"",title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,momentum:r.momentum??null,visitors:r.visitors??null,comments:r.comments??null,active10m:r.active10m??null,advertising:r.advertising??null,gift:r.gift??null,duration:r.duration||'',startedAt:r.startedAt,thumbnail:r.thumbnailUrl,thumbnailCandidates:r.thumbnailCandidates||[]}))};
+ if(best)return {source:best.source.name,sourceUrl:best.source.url,complete:false,metric:best.source.name==="勢いランキング"?"公開勢いポイント順":best.source.name==="nico-ran.stream"?"nico-ran.stream掲載順（参考順位）":"公開掲載順（参考順位）",coverage:nicoReferenceCoverage(best.rows.slice(0,10),results.find(r=>r.source.name==="nico-ran.stream")),fetchedAt:new Date().toISOString(),entries:best.rows.slice(0,10).map(r=>({id:r.liveId,name:r.name,profileUrl:r.profileUrl||"",title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,momentum:r.momentum??null,visitors:r.visitors??null,comments:r.comments??null,active10m:r.active10m??null,active60s:r.active60s??null,activitySampleEnd:r.activitySampleEnd??null,advertising:r.advertising??null,gift:r.gift??null,duration:r.duration||'',startedAt:r.startedAt,thumbnail:r.thumbnailUrl,thumbnailCandidates:r.thumbnailCandidates||[]}))};
  const diagnostics=results.map(r=>r.source.name+": "+r.reason);
  return {status:"error",message:"ニコ生取得失敗（"+diagnostics.join("／")+"）",entries:[]};
 }
@@ -603,11 +681,11 @@ async function resolveNicoProfile(request){
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r28",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r29",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r28"),backup=new Request(url.origin+url.pathname+"?last-good=r28");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r29"),backup=new Request(url.origin+url.pathname+"?last-good=r29");
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
