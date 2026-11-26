@@ -320,6 +320,53 @@ async function publicKickRanking(reason){
 }
 
 // Read only public, matching program data. Do not connect to watch/chat sockets.
+function parseStatsMessage(raw){
+ if(typeof raw!=="string"||raw.length>65536)return null;
+ try{
+  const event=JSON.parse(raw);if(event.type!=="statistics"||!event.data||typeof event.data!=="object")return null;
+  const p=v=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0&&v<=999999999999?v:null;
+  const advertising=p(event.data.adPoints),gift=p(event.data.giftPoints),visitors=p(event.data.viewers),comments=p(event.data.comments);
+  if(advertising===null&&gift===null&&visitors===null&&comments===null)return null;
+  return {advertising,gift,visitors,comments};
+ }catch{return null;}
+}
+function statisticsEndpoint(data,id){
+ if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
+ if(data?.program?.isOnAir===false)return null;
+ const status=String(data.program.schedule?.status??data.program.liveStatus??data.program.status??"").toUpperCase();
+ if(status&&!["ON_AIR","ONAIR","LIVE","ON AIR"].includes(status))return null;
+ try{
+  const u=new URL(data.site.relive.webSocketUrl);
+  if(u.protocol!=="wss:"||u.username||u.password||u.port||u.hash||!/^([a-z0-9-]+\.)*live2\.nicovideo\.jp$/i.test(u.hostname)||!/^\/unama\/wsapi\/v2\/watch\/\d+\/?$/.test(u.pathname))return null;
+  if(Number.isSafeInteger(data.site.frontendId)&&data.site.frontendId>0)u.searchParams.set("frontend_id",String(data.site.frontendId));
+  u.protocol="https:";return u.href;
+ }catch{return null;}
+}
+// One bounded read of public program statistics. Never open the comment
+// server or fetch a media playlist; no account credentials or tokens are stored.
+async function fetchNicoStatistics(endpoint){
+ if(!endpoint)return null;
+ let ws;
+ try{
+  const response=await fetch(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},redirect:"error",signal:AbortSignal.timeout(4000)});
+  ws=response.webSocket;if(!ws)return null;
+  return await new Promise(resolve=>{
+   let done=false,latest=null,timer;
+   function finish(){if(done)return;done=true;clearTimeout(timer);try{ws.close(1000,"statistics complete");}catch{}resolve(latest);}
+   function send(value){try{ws.send(JSON.stringify(value));}catch{finish();}}
+   timer=setTimeout(finish,3500);
+   ws.addEventListener("close",finish);ws.addEventListener("error",finish);
+   ws.addEventListener("message",event=>{
+    const stat=parseStatsMessage(event.data);
+    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};if(latest.advertising!==null&&latest.gift!==null)finish();return;}
+    if(typeof event.data!=="string"||event.data.length>65536)return;
+    try{const message=JSON.parse(event.data);if(message.type==="ping")send({type:"pong"});else if(message.type==="disconnect"||message.type==="error")finish();}catch{}
+   });
+   try{ws.accept();send({type:"startWatching",data:{stream:{quality:"abr",protocol:"hls",latency:"high",chasePlay:false},room:{protocol:"webSocket",commentable:false},reconnect:false}});}catch{finish();}
+  });
+ }catch{try{ws?.close(1000,"statistics unavailable");}catch{}return null;}
+}
+
 function publicNicoDetail(html,id){
  for(const tag of String(html||"").matchAll(/<[^>]+\bid\s*=\s*(["'])embedded-data\1[^>]*>/gi)){
   const attr=tag[0].match(/\bdata-props\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];if(!attr)continue;
@@ -327,18 +374,18 @@ function publicNicoDetail(html,id){
    const p=data?.program;if(!p||liveId(p.nicoliveProgramId??p.programId??p.liveId??p.id?.value??p.id)!==id)continue;
    const status=String(p.schedule?.status??p.liveStatus??p.status??"").toUpperCase();if(status&&!["ON_AIR","ONAIR","LIVE","ON AIR"].includes(status))continue;
    const stats=p.statistics??p.stats??{},v=readContributionStatistics(p),images=programThumbnailCandidates(p,data);
-   return {advertising:v.adPoints,gift:v.giftPoints,visitors:count(stats.watchCount??stats.visitorCount??p.watchCount),comments:count(stats.commentCount??p.commentCount),startedAt:time(p.schedule?.beginTime??p.beginTime??p.beginAt),thumbnailUrl:images[0]||"",thumbnailCandidates:images};
+   return {advertising:v.adPoints,gift:v.giftPoints,visitors:count(stats.watchCount??stats.visitorCount??p.watchCount),comments:count(stats.commentCount??p.commentCount),startedAt:time(p.schedule?.beginTime??p.beginTime??p.beginAt),thumbnailUrl:images[0]||"",thumbnailCandidates:images,statisticsEndpoint:statisticsEndpoint(data,id)};
   }catch{}
  }
  return null;
 }
 // Bounded lookups with per-program Cache API entries. No shared I/O promises.
 async function enrichPublicNico(rows,origin){
- const candidates=rows.slice(0,10).filter(r=>!r.thumbnailUrl||r.advertising==null||r.gift==null||!r.startedAt);
+ const candidates=rows.slice(0,10).filter(r=>!r.thumbnailUrl||r.advertising==null||r.gift==null||!r.startedAt||r.visitors==null||r.comments==null);
  const missing=[];
  function apply(row,detail){if(!detail)return;for(const k of ["advertising","gift","visitors","comments","startedAt","thumbnailUrl"])if((row[k]==null||row[k]==="")&&detail[k]!=null&&detail[k]!=="")row[k]=detail[k];row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),...(detail.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);}
- for(const row of candidates){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r16");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
- await Promise.all(missing.slice(0,3).map(async({row,key})=>{let detail=null;try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);}catch{}apply(row,detail);try{await caches.default.put(key,json(detail,200,"public, max-age=120"));}catch{}}));
+ for(const row of candidates){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r20");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
+ await Promise.all(missing.slice(0,3).map(async({row,key})=>{let detail=null;try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail){const endpoint=detail.statisticsEndpoint;delete detail.statisticsEndpoint;if((row.advertising==null&&detail.advertising==null)||(row.gift==null&&detail.gift==null)){const stats=await fetchNicoStatistics(endpoint);if(stats)for(const k of ["advertising","gift","visitors","comments"])if(stats[k]!=null)detail[k]=stats[k];}}}catch{}apply(row,detail);try{await caches.default.put(key,json(detail,200,"public, max-age=120"));}catch{}}));
 }
 
 function parseArchiveRanking(html,service){
@@ -410,11 +457,11 @@ async function kickRanking(env){
 function json(value,status=200,cache="no-store"){return new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":cache,"x-content-type-options":"nosniff"}});}
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r19",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r20",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r19");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r20");
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
   const data=type==="nico"?await nicoRanking(url.origin):await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
