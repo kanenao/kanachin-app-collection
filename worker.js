@@ -567,7 +567,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r61":RANK_CACHE_REVISION)));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r62":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -1004,10 +1004,76 @@ function recentKickSample(payload,roomId,startedAt,now){
  if(!ids.size&&!complete)return null;
  return {receivedComments:ids.size,activeUsers:missingSender?null:senders.size,chatPartial:!complete,chatWindowSeconds:Math.max(1,Math.ceil((now-cutoff)/1000)),sampledAt:new Date(now).toISOString()};
 }
+function officialGiftCount(value){if(typeof value==="string"&&/^\d{1,12}$/.test(value))value=Number(value);return Number.isSafeInteger(value)&&value>=0&&value<=999999999999?value:null;}
+function officialGiftEvent(type,payload,now){
+ const broadcaster=officialGiftCount(payload?.broadcaster?.user_id),at=Date.parse(payload?.created_at);
+ if(!broadcaster||!Number.isFinite(at)||at>now+60000||at<now-86400000)return null;
+ let amount=null;
+ if(type==="kicks.gifted")amount=officialGiftCount(payload.gift?.amount);
+ else if(type==="channel.subscription.gifts"&&Array.isArray(payload.giftees)&&payload.giftees.length<=1000)amount=payload.giftees.length;
+ return amount>0?{broadcaster,at,amount,type}:null;
+}
 function kickGiftedSubs(payload,slug){
  const rows=payload?.data;if(!Array.isArray(rows))return null;
- const row=rows.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===slug&&x.stream?.is_live===true);
- const n=row?.active_gifted_subscribers_count;return Number.isSafeInteger(n)&&n>=0?n:null;
+ const matches=rows.filter(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===slug);
+ return matches.length===1?officialGiftCount(matches[0].active_gifted_subscribers_count):null;
+}
+async function kickGiftKey(){
+ const raw=await fetchBounded("https://api.kick.com/public/v1/public-key",{headers:{accept:"application/json,text/plain"}},16384);
+ let pem=raw;
+ try{const p=JSON.parse(raw);pem=p?.data?.public_key??p?.public_key??p?.data;}catch{}
+ if(typeof pem!=="string"||!/^-----BEGIN PUBLIC KEY-----[\s\S]+-----END PUBLIC KEY-----\s*$/.test(pem.trim()))throw Error("invalid key");
+ const der=Uint8Array.from(atob(pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,"")),c=>c.charCodeAt(0));
+ return crypto.subtle.importKey("spki",der,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]);
+}
+async function kickGiftWebhook(request,env){
+ if(request.method!=="POST")return new Response(null,{status:405});
+ if(!env.KICK_GIFT_DB||!env.KICK_GIFT_SUBSCRIPTION_IDS)return new Response(null,{status:503});
+ const type=request.headers.get("Kick-Event-Type"),version=request.headers.get("Kick-Event-Version");
+ if(!["kicks.gifted","channel.subscription.gifts"].includes(type)||version!=="1")return new Response(null,{status:400});
+ const id=request.headers.get("Kick-Event-Message-Id")||"",subscription=request.headers.get("Kick-Event-Subscription-Id")||"",stamp=request.headers.get("Kick-Event-Message-Timestamp")||"",signature=request.headers.get("Kick-Event-Signature")||"";
+ const allowed=String(env.KICK_GIFT_SUBSCRIPTION_IDS).split(",").map(x=>x.trim()).filter(Boolean);
+ const now=Date.now(),sent=Date.parse(stamp);
+ if(!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)||!allowed.includes(subscription)||!Number.isFinite(sent)||sent>now+60000||sent<now-86400000||!signature||signature.length>2048)return new Response(null,{status:403});
+ if(!request.body||Number(request.headers.get("content-length")||0)>262144)return new Response(null,{status:413});
+ let raw;try{
+  const reader=request.body.getReader(),chunks=[];let size=0;
+  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>262144){await reader.cancel();return new Response(null,{status:413});}chunks.push(value);}}finally{reader.releaseLock();}
+  raw=new Uint8Array(size);let offset=0;for(const chunk of chunks){raw.set(chunk,offset);offset+=chunk.length;}
+ }catch{return new Response(null,{status:400});}
+ try{
+  const key=await kickGiftKey(),prefix=new TextEncoder().encode(id+"."+stamp+"."),signed=new Uint8Array(prefix.length+raw.length);
+  signed.set(prefix);signed.set(raw,prefix.length);
+  if(!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,Uint8Array.from(atob(signature),c=>c.charCodeAt(0)),signed))return new Response(null,{status:403});
+ }catch{return new Response(null,{status:503});}
+ let event;try{event=officialGiftEvent(type,JSON.parse(new TextDecoder().decode(raw)),now);}catch{return new Response(null,{status:400});}
+ if(!event)return new Response(null,{status:400});
+ try{
+  // Store only the verified event ID, public channel ID, time, and aggregate amount.
+  // INSERT OR IGNORE makes repeated delivery idempotent.
+  await env.KICK_GIFT_DB.batch([
+   env.KICK_GIFT_DB.prepare("INSERT OR IGNORE INTO kick_gift_events (event_id,broadcaster_id,kind,occurred_at,amount) VALUES (?,?,?,?,?)").bind(id,event.broadcaster,event.type,event.at,event.amount),
+   env.KICK_GIFT_DB.prepare("DELETE FROM kick_gift_events WHERE occurred_at < ?").bind(now-86400000)
+  ]);
+  return new Response(null,{status:204});
+ }catch{return new Response(null,{status:503});}
+}
+async function enrichOfficialKickGiftEvents(rows,env){
+ for(const row of rows){row.kicksGiftStage=!env.KICK_GIFT_DB||!env.KICK_GIFT_SUBSCRIPTION_IDS?"公式Webhook未設定":"公式ギフトイベント受信待ち";}
+ if(!env.KICK_GIFT_DB||!env.KICK_GIFT_SUBSCRIPTION_IDS)return;
+ const ids=[...new Set(rows.map(r=>r.kickOfficialId).filter(v=>Number.isSafeInteger(v)&&v>0))];
+ if(!ids.length)return;
+ try{
+  const now=Date.now();
+  const query="SELECT broadcaster_id, kind, SUM(amount) AS total FROM kick_gift_events WHERE occurred_at >= ? AND occurred_at <= ? AND broadcaster_id IN ("+ids.map(()=>"?").join(",")+") GROUP BY broadcaster_id,kind";
+  const result=await env.KICK_GIFT_DB.prepare(query).bind(now-86400000,now,...ids).all();
+  for(const item of result.results||[]){
+   const row=rows.find(r=>r.kickOfficialId===item.broadcaster_id),total=officialGiftCount(item.total);
+   if(!row||total==null)continue;
+   if(item.kind==="kicks.gifted"){row.kicksGift=total;row.kicksGiftStage="公式Webhook・直近24時間受信分";}
+   if(item.kind==="channel.subscription.gifts")row.giftedSubscriptionsReceived=total;
+  }
+ }catch{for(const row of rows)row.kicksGiftStage="公式ギフト集計DB取得失敗";}
 }
 function mergeShobonThumbnails(rows,reference){
  return rows.map(row=>{
@@ -1042,12 +1108,13 @@ async function shobonThumbnailSnapshot(origin){
 async function enrichKickPublicMetrics(data,origin,env){
  if(!Array.isArray(data.entries)||!data.entries.length)return data;
  const rows=data.entries.slice(0,10);
- for(const row of rows){row.receivedComments=null;row.activeUsers=null;row.kicksGift=null;row.giftedSubscriptions=null;}
+ for(const row of rows){row.receivedComments=null;row.activeUsers=null;row.kicksGift=null;row.giftedSubscriptions=null;row.giftedSubscriptionsReceived=null;row.giftedSubscriptionsStage="公式API認証未設定";}
  // Official channel-level active gifted subscriptions are not gifts during this stream.
  // Batch top ten only; cache channel totals for two minutes.
  if(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET){
+  for(const row of rows)row.giftedSubscriptionsStage="公式API取得待ち";
   try{
-   const key=new Request(origin+"/__cache/kick-channels-r37/"+rows.map(r=>r.id).sort().join(","));
+   const key=new Request(origin+"/__cache/kick-channels-r62/"+rows.map(r=>r.id).sort().join(","));
    const cached=await caches.default.match(key);let payload;
    if(cached)payload=await cached.json();
    else{
@@ -1055,12 +1122,14 @@ async function enrichKickPublicMetrics(data,origin,env){
     for(const row of rows)if(/^[a-z0-9_-]{1,40}$/.test(row.id))url.searchParams.append("slug",row.id);
     const response=JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}},1024*1024));
     // Cache only the public aggregate fields, never account tokens or other metadata.
-    payload={data:(Array.isArray(response.data)?response.data:[]).map(x=>({slug:x.slug,stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(kickExplicitImage).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
+    if(!Array.isArray(response.data))throw Error("Kick channel format");
+    payload={data:response.data.map(x=>({slug:x.slug,broadcaster_user_id:officialGiftCount(x.broadcaster_user_id),stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(kickExplicitImage).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
     try{await caches.default.put(key,json(payload,200,"public, max-age=30"));}catch{}
    }
-   for(const row of rows){row.giftedSubscriptions=kickGiftedSubs(payload,row.id);const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
-  }catch{}
+   for(const row of rows){const channel=payload.data?.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===row.id);row.kickOfficialId=officialGiftCount(channel?.broadcaster_user_id);row.giftedSubscriptions=kickGiftedSubs(payload,row.id);row.giftedSubscriptionsStage=row.giftedSubscriptions!=null?"Kick公式API取得済み":channel?"公式APIに有効ギフト数なし":"公式APIに対象チャンネルなし";const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
+  }catch(e){for(const row of rows)row.giftedSubscriptionsStage="公式API: "+diagnostic(e);}
  }
+ await enrichOfficialKickGiftEvents(rows,env);
  // Recent public chat snapshots only: no WebSocket, webhook, user records, or chat archive.
  const missing=[];
  for(const row of rows){
@@ -1427,10 +1496,11 @@ async function nicoSupplementalStatistics(request){
 
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
+ if(url.pathname==="/api/kick-gift-events")return kickGiftWebhook(request,env);
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r61",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r62",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET),kickGiftWebhookConfigured:!!(env.KICK_GIFT_DB&&env.KICK_GIFT_SUBSCRIPTION_IDS)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
