@@ -27,6 +27,8 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 .ranking-embed body{background:#fff}.ranking-embed header,.ranking-embed footer,.ranking-embed main>section:not(#rankings){display:none!important}.ranking-embed .wrap{width:calc(100% - 16px)}.ranking-embed .rankings{margin:8px 0}.rank-move.up{color:#187647}.rank-move.down{color:#b44242}.rank-move.keep{color:var(--muted)}
 
 .rank-eyebrow{font-size:10px;letter-spacing:.16em;font-weight:800;color:#526784}.rankings h2{margin:2px 0}.rank-panel{background:#f7f9fc;padding:12px}.rank-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;border-left:4px solid #2458ab;padding-left:9px}.rank-panel[data-platform="kick"] .rank-panel-head{border-color:#258345}.rank-count{font-size:10px;color:var(--muted);font-weight:750}.rank-mode{font-size:11px;color:var(--muted);margin:5px 0 9px}.rank-list li{grid-template-columns:38px minmax(0,1fr);gap:8px;background:white;border:1px solid var(--line);border-radius:9px;padding:9px;margin-bottom:7px}.rank-list li>strong{font-size:20px;text-align:center;color:var(--ink);line-height:1.25}.rank-list li:nth-child(1)>strong{color:#986b13}.rank-list li:nth-child(2)>strong{color:#66788d}.rank-list li:nth-child(3)>strong{color:#a16a43}.rank-move{font-size:9px;white-space:nowrap}.rank-content{min-width:0}.rank-top{display:grid;grid-template-columns:92px minmax(0,1fr);gap:8px;align-items:start}.rank-thumbbox{width:100%;aspect-ratio:16/9;position:relative;background:#e8eef5;border-radius:5px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#53657a;font-size:10px}.rank-thumbbox img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;margin:0}.rank-title{display:block;font-size:13px;line-height:1.4}.rank-channel{font-size:11px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}.rank-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 7px;margin:8px 0 0}.rank-metrics div{background:#f5f8fb;border-radius:5px;padding:4px 5px;min-width:0}.rank-metrics dt{font-size:10px;color:var(--muted)}.rank-metrics dd{font-size:12px;font-weight:700;margin:0;overflow-wrap:anywhere;line-height:1.5}.rank-delta{font-size:10px;color:#187647;font-weight:500}.rank-delta.negative{color:#b44242}.rank-unknown{color:var(--muted);font-weight:400!important}.rank-list li>div{display:block}.rank-status:not([hidden]){padding:5px 7px;background:#fff3d8;border-radius:5px}.rank-status[hidden]{display:none}@media(max-width:390px){.rank-top{grid-template-columns:76px minmax(0,1fr)}.rank-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.rank-list li{grid-template-columns:86px minmax(0,1fr)}.rank-position{display:flex;flex-direction:column;align-items:center;gap:3px}.rank-position .rank-move{font-size:10px;font-weight:700;line-height:1.2}.rank-position .rank-prior{font-size:10px;white-space:nowrap;font-weight:500;line-height:1.2}.rank-sparkline{display:block;width:100%;height:29px;color:var(--muted);font-size:9px;font-weight:400;margin-top:2px}.rank-sparkline svg{display:block;width:100%;height:29px;overflow:visible}.rank-spark-guide{stroke:#e3eaf1;stroke-width:1}.rank-spark-path{fill:none;stroke:#3b94d8;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}.rank-spark-dot{fill:#3b94d8}@media(max-width:420px){.rank-list li{grid-template-columns:68px minmax(0,1fr);gap:6px}.rank-position .rank-prior{font-size:9px}.rank-position .rank-move{font-size:9px}}
 </style>
 </head>
 <body>
@@ -48,10 +50,10 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 <div class="news-controls" role="group" aria-label="リリースの種類"><button type="button" data-filter="all" aria-pressed="true">すべて</button><button type="button" data-filter="stable" aria-pressed="false">正規版</button><button type="button" data-filter="beta" aria-pressed="false">β版</button><button type="button" data-filter="alpha" aria-pressed="false">α版</button></div>
 <p id="news-status" class="hint" role="status">更新情報を取得中…</p><ol id="news-list" class="news-list"></ol>
 </section>
-<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位は取得範囲内の参考順位です。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
+<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は閲覧中の直近10分（取得範囲内の参考順位）です。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r23 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r24 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -113,17 +115,56 @@ refresh.addEventListener("click",()=>load(true));load();
 setInterval(()=>{if(!document.hidden)load();},TTL);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-lastAttempt>=TTL)load();});
 
+function recordRankHistory(previous,data,type){
+ const t=Date.parse(data.fetchedAt);
+ if(data.stale||data.status!=="ok"||!Number.isFinite(t)||!Array.isArray(data.entries))return previous||null;
+ const compatible=previous&&previous.source===data.source&&previous.metric===data.metric;
+ const old=compatible?previous.samples:[];
+ if(old.length&&t<=old[old.length-1].at)return previous;
+ const ranks={};
+ for(const [i,row] of data.entries.slice(0,10).entries()){
+  if((type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(row.id))ranks[row.id]=i+1;
+ }
+ return {source:data.source,metric:data.metric,samples:[...old.filter(s=>s.at>=t-600000),{at:t,ranks}].slice(-61)};
+}
+function rankGraphPaths(history,id){
+ const samples=history?.samples||[],last=samples[samples.length-1]?.at;
+ if(!Number.isFinite(last))return {paths:[],points:[],count:0};
+ let paths=[],points=[],current=[],prior=null,count=0;
+ const flush=()=>{if(current.length>1)paths.push(current.map((p,i)=>(i?"L":"M")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" "));current=[];};
+ for(const s of samples){
+  const rank=Object.prototype.hasOwnProperty.call(s.ranks,id)?s.ranks[id]:null;
+  if(!Number.isInteger(rank)||rank<1||rank>10){flush();prior=null;continue;}
+  if(prior!==null&&s.at-prior>45000)flush();
+  const point={x:3+Math.max(0,Math.min(1,(s.at-(last-600000))/600000))*94,y:3+(rank-1)*22/9,rank};
+  current.push(point);points.push(point);count++;prior=s.at;
+ }
+ flush();return {paths,points,count};
+}
+const rankingHistory=new Map();
+function makeRankGraph(type,row){
+ const chart=element("span","rank-sparkline"),data=rankGraphPaths(rankingHistory.get(type),row.id);
+ if(data.count<2){chart.textContent="推移集計中";return chart;}
+ const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");svg.setAttribute("viewBox","0 0 100 29");svg.setAttribute("role","img");svg.setAttribute("aria-label","直近10分の順位推移・上が1位、下が10位");svg.setAttribute("preserveAspectRatio","none");
+ const title=document.createElementNS(ns,"title");title.textContent="直近10分の順位推移（"+data.count+"回取得、最新"+data.points[data.points.length-1].rank+"位）";svg.append(title);
+ for(const y of [3,25]){const line=document.createElementNS(ns,"line");line.setAttribute("x1","3");line.setAttribute("x2","97");line.setAttribute("y1",String(y));line.setAttribute("y2",String(y));line.setAttribute("class","rank-spark-guide");svg.append(line);}
+ for(const d of data.paths){const path=document.createElementNS(ns,"path");path.setAttribute("d",d);path.setAttribute("class","rank-spark-path");svg.append(path);}
+ for(const p of data.points){const dot=document.createElementNS(ns,"circle");dot.setAttribute("cx",String(p.x));dot.setAttribute("cy",String(p.y));dot.setAttribute("r","1.1");dot.setAttribute("class","rank-spark-dot");svg.append(dot);}
+ chart.append(svg);return chart;
+}
+
 function compareRanking(current,previous,type){
  const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:i+1}]));
  const seconds=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
  return current.entries.slice(0,10).map((row,i)=>{
   const old=before.get(row.id),same=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=180&&(type==="nico"||(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(old.startedAt)));
   const delta=(key,monotonic=false)=>same&&Number.isSafeInteger(row[key])&&Number.isSafeInteger(old[key])&&(!monotonic||row[key]>=old[key])?row[key]-old[key]:null;
-  return {...row,rankChange:same?old.rank-i-1:null,viewerChange:delta("viewers"),visitorChange:delta("visitors",true),commentChange:delta("comments",true)};
+  const rankComparable=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=180;
+  return {...row,previousRank:rankComparable?old.rank:null,rankChange:rankComparable?old.rank-i-1:null,viewerChange:delta("viewers"),visitorChange:delta("visitors",true),commentChange:delta("comments",true)};
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.26-r23";
+const rankingRevision="2026.11.26-r24";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -150,8 +191,8 @@ function renderRanking(panel,data,stale=false){
  const items=[];
  for(const [i,row] of data.entries.slice(0,10).entries()){
   if(!(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(row.id))continue;
-  const li=element("li"),rank=element("strong","",String(i+1)),body=element("div","rank-content"),top=element("div","rank-top"),heading=element("div"),link=element("a","rank-title",row.title||row.name||"タイトルなし");
-  if(!stale&&Number.isSafeInteger(row.rankChange)){const d=row.rankChange;rank.append(element("small","rank-move "+(d>0?"up":d<0?"down":"keep"),d>0?"▲ "+d:d<0?"▼ "+Math.abs(d):"→ KEEP"));}
+  const li=element("li"),rank=element("strong","rank-position",String(i+1)+"位"),body=element("div","rank-content"),top=element("div","rank-top"),heading=element("div"),link=element("a","rank-title",row.title||row.name||"タイトルなし");
+  if(!stale&&Number.isSafeInteger(row.rankChange)){const d=row.rankChange;rank.append(element("small","rank-move "+(d>0?"up":d<0?"down":"keep"),d>0?"▲ UP "+d:d<0?"▼ DOWN "+Math.abs(d):"→ KEEP"));rank.append(element("small","rank-prior","（前回"+row.previousRank+"位）"));}else rank.append(element("small","rank-prior","比較待ち"));rank.append(makeRankGraph(type,row));
   link.href=(type==="nico"?"https://live.nicovideo.jp/watch/":"https://kick.com/")+encodeURIComponent(row.id);
   heading.append(link);if(row.name)heading.append(element("div","rank-channel",row.name));
   top.append(thumbnail(row,type),heading);const metrics=element("dl","rank-metrics");
@@ -175,7 +216,7 @@ async function loadRanking(force=false){
    const previous=rankPrevious.get(type);
    if(data.stale){renderRanking(panel,previous||data,true);return;}
    if(previous?.fetchedAt===data.fetchedAt){if(!panel.querySelector(".rank-status").hidden)renderRanking(panel,previous);return;}
-   data.entries=compareRanking(data,previous,type);rankPrevious.set(type,data);renderRanking(panel,data);
+   rankingHistory.set(type,recordRankHistory(rankingHistory.get(type),data,type));data.entries=compareRanking(data,previous,type);rankPrevious.set(type,data);renderRanking(panel,data);
   }catch(e){const previous=rankPrevious.get(type);renderRanking(panel,previous||{status:"error",entries:[],message:String(e?.message||"通信失敗").slice(0,180)},!!previous);}
   finally{rankBusy.delete(type);button.disabled=rankBusy.size>0;}
  }));
