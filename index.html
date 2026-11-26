@@ -36,7 +36,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 .version-downloads{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;background:#e9f1ff;border:1px solid #d5e4f8;border-radius:6px;padding:6px 8px;margin-top:7px}.version-downloads>span{font-size:11px;color:var(--muted);font-weight:700}.version-downloads>strong{font-size:16px;color:var(--accent);font-variant-numeric:tabular-nums}
 .nico-preview-thumb{cursor:pointer;isolation:isolate}.nico-preview-thumb img[hidden],.nico-preview-badge[hidden]{display:none}.nico-preview-badge{position:absolute;z-index:2;right:2px;bottom:2px;background:#172638d9;color:white;border-radius:3px;padding:1px 4px;font-size:9px;line-height:1.4;pointer-events:none}.nico-preview-active{outline:2px solid #3b94d8;outline-offset:-2px}.nico-thumb-message{padding:2px;text-align:center}
 .nico-stat-note{display:block;color:var(--muted);font-size:10px;margin:3px 0;overflow-wrap:anywhere}
-.kick-thumb-message{position:absolute;top:8%;left:0;right:0;text-align:center;line-height:1.2}.kick-player-open{font-size:10px;padding:3px 5px;margin-top:15px;cursor:pointer;z-index:2}.kick-preview-player{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:3}.kick-player-close{position:absolute;top:2px;right:2px;z-index:4;border:0;border-radius:4px;background:#222;color:#fff;padding:2px 7px;cursor:pointer}.kick-thumb [hidden]{display:none!important}
+.kick-thumb-message{position:absolute;top:8%;left:0;right:0;text-align:center;line-height:1.2}.kick-player-open{font-size:10px;padding:3px 5px;margin-top:0;cursor:pointer;z-index:2}.kick-preview-player{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:3}.kick-player-close{position:absolute;top:2px;right:2px;z-index:4;border:0;border-radius:4px;background:#222;color:#fff;padding:2px 7px;cursor:pointer}.kick-thumb [hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -56,7 +56,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は直近10分の取得履歴を保存・復元します。新規ランクインは60秒間NEW表示します（取得範囲内の参考順位）。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r51 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r52 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -217,7 +217,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.26-r51";
+const rankingRevision="2026.11.26-r52";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -341,7 +341,7 @@ function stopKickPlayer(state){
  if(!state)return;
  if(state.player){state.player.remove();state.player=null;}state.autoPlaying=false;
  if(activeKickPlayer===state)activeKickPlayer=null;
- state.close.hidden=true;state.img.hidden=!state.loaded;state.fallback.hidden=state.loaded;state.message.hidden=state.loaded;
+ state.close.hidden=true;state.img.hidden=!state.loaded;state.fallback.hidden=state.loaded;state.message.hidden=state.loaded||state.needsPlayer;
 }
 function startKickPlayer(state,automatic=false){
  if(!state||!kickThumbStates.has(state.id)||!(/^[a-z0-9_-]{1,40}$/.test(state.id)))return;
@@ -358,10 +358,10 @@ function kickThumbPrune(ids){
 }
 function kickThumbLoad(state,urls){
  state.urls=urls;state.index=0;state.loading=true;clearTimeout(state.autoTimer);
- state.autoTimer=setTimeout(()=>{if(kickThumbStates.get(state.id)===state&&!state.loaded){state.needsPlayer=true;state.fallback.hidden=!!state.player;state.message.textContent="静止画取得中";state.fallback.hidden=!!state.player;}},8000);
+ state.autoTimer=setTimeout(()=>{if(kickThumbStates.get(state.id)===state&&!state.loaded){state.needsPlayer=true;state.fallback.hidden=!!state.player;state.message.textContent="";state.message.hidden=true;state.fallback.hidden=!!state.player;}},8000);
  // Keep a good image visible while the next image is fetched.
  const probe=element("img");state.probe=probe;probe.referrerPolicy="no-referrer";
- function next(){if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.index++;if(state.index<urls.length){probe.src=urls[state.index];return;}state.loading=false;state.probe=null;clearTimeout(state.autoTimer);if(!state.loaded){state.needsPlayer=true;if(!state.player){state.message.textContent="映像サムネ未取得";state.message.hidden=false;state.fallback.hidden=false;}queueKickAutoplay();}}
+ function next(){if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.index++;if(state.index<urls.length){probe.src=urls[state.index];return;}state.loading=false;state.probe=null;clearTimeout(state.autoTimer);if(!state.loaded){state.needsPlayer=true;if(!state.player){state.message.textContent="";state.message.hidden=true;state.fallback.hidden=false;}queueKickAutoplay();}}
  probe.addEventListener("load",()=>{if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.loading=false;state.probe=null;clearTimeout(state.autoTimer);state.loaded=true;state.needsPlayer=false;state.img.src=probe.src;if(state.autoPlaying)stopKickPlayer(state);queueKickAutoplay();if(!state.player){state.img.hidden=false;state.message.hidden=true;state.fallback.hidden=true;}});
  probe.addEventListener("error",next);
  probe.src=urls[0];
