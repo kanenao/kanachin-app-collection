@@ -37,10 +37,10 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 .nico-preview-thumb{cursor:pointer;isolation:isolate}.nico-preview-thumb img[hidden],.nico-preview-badge[hidden]{display:none}.nico-preview-badge{position:absolute;z-index:2;right:2px;bottom:2px;background:#172638d9;color:white;border-radius:3px;padding:1px 4px;font-size:9px;line-height:1.4;pointer-events:none}.nico-preview-active{outline:2px solid #3b94d8;outline-offset:-2px}.nico-thumb-message{padding:2px;text-align:center}
 .nico-stat-note{display:block;color:var(--muted);font-size:10px;margin:3px 0;overflow-wrap:anywhere}
 .kick-thumb [hidden]{display:none!important}
-.kick-api-settings{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px;margin:24px 0}.kick-check{padding:8px 14px;border:1px solid #b7c5d6;border-radius:8px;background:white;color:var(--ink);font-weight:700}.kick-api-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}.kick-api-grid div{padding:10px;background:var(--bg);border-radius:8px}.kick-api-grid dt{font-size:12px;color:var(--muted)}.kick-api-grid dd{margin:0;font-weight:700;font-size:14px;overflow-wrap:anywhere}.kick-api-settings summary{cursor:pointer;font-weight:700}.kick-api-settings code{overflow-wrap:anywhere}.kick-api-settings ol{padding-left:1.4em}</style>
+</style>
 </head>
 <body>
-<header><div class="wrap top"><a class="brand" href="./">かなちんの作成アプリ集</a><nav aria-label="メインメニュー"><a href="#apps">アプリ一覧</a><a href="#rankings">配信ランキング</a><a href="#kick-api">Kick API接続</a><a href="#roadmap">開発予定</a><a href="https://github.com/kanenao">GitHub</a><a href="https://x.com/KANE_NAO">X</a></nav></div></header>
+<header><div class="wrap top"><a class="brand" href="./">かなちんの作成アプリ集</a><nav aria-label="メインメニュー"><a href="#apps">アプリ一覧</a><a href="#rankings">配信ランキング</a><a href="#roadmap">開発予定</a><a href="https://github.com/kanenao">GitHub</a><a href="https://x.com/KANE_NAO">X</a></nav></div></header>
 <main class="wrap">
 <section class="hero"><small>LIVE STREAM TOOLS</small><h1>配信を、もっと便利に。</h1><p>ニコニコ生放送・Kickの録画、コメント保存、配信支援アプリをまとめて紹介。</p><a href="#apps">アプリを探す</a></section>
 <section aria-labelledby="apps"><div class="heading"><h2 id="apps">アプリ一覧</h2><span id="count">3件</span></div><p class="hint">GitHubの公開リリースから正規版・β版の公開日時（日本時間）と主な更新内容を表示します。ダウンロードは各公式リリースページから。ダウンロード回数は表示中の各バージョンの配布ファイル別集計（実人数ではありません）。</p>
@@ -54,16 +54,9 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 </div><p id="empty" hidden>該当するアプリがありません。</p></section>
 
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は直近10分の取得履歴を保存・復元します。新規ランクインは60秒間NEW表示します（取得範囲内の参考順位）。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
-<section class="kick-api-settings" id="kick-api" aria-labelledby="kick-api-title">
- <div class="heading"><div><span class="rank-eyebrow">KICK / OFFICIAL API</span><h2 id="kick-api-title">Kick API接続</h2></div><button class="kick-check" id="kick-api-check" type="button">接続確認</button></div>
- <p class="hint">公式ランキング・ギフト情報のサーバー接続設定です。認証情報は公開ページに入力せず、CloudflareのSecretに登録してください。</p>
- <dl class="kick-api-grid">
- <div><dt>Client ID</dt><dd id="kick-id-status">未確認</dd></div><div><dt>Client Secret</dt><dd id="kick-secret-status">未確認</dd></div><div><dt>公式API認証</dt><dd id="kick-token-status">未確認</dd></div><div><dt>配信一覧API</dt><dd id="kick-live-status">未確認</dd></div><div><dt>ギフトサブスクAPI</dt><dd id="kick-sub-status">未確認</dd></div><div><dt>ギフト受信DB</dt><dd id="kick-db-status">未確認</dd></div><div><dt>Webhook購読ID設定</dt><dd id="kick-hook-status">未確認</dd></div></dl>
- <p id="kick-api-result" class="status" role="status" aria-live="polite">設定後に接続確認を押してください。確認結果は最大60秒キャッシュされます。</p>
- <details><summary>接続設定方法（管理者用）</summary><ol><li><a href="https://docs.kick.com/" target="_blank" rel="noopener noreferrer">Kick公式開発者ドキュメント</a>を参照し、KickのDeveloper設定でアプリを作成してClient IDとClient Secretを取得。</li><li><a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare管理画面</a>の Workers &amp; Pages → kanachin-app-collection → Settings → Variables and Secrets で <code>KICK_CLIENT_ID</code> と <code>KICK_CLIENT_SECRET</code> をSecretとして登録し、反映。</li><li>このページに戻り、接続確認を実行。</li></ol><p class="hint">KICKsギフトの受信には別途D1と公式Webhook購読が必要です。購読ID設定済みは、実際の受信成功を示すものではありません。</p><p>Webhook URL：<code id="kick-hook-url">/api/kick-gift-events</code></p><p><a href="https://github.com/kanenao/kanachin-app-collection#readme" target="_blank" rel="noopener noreferrer">ギフト受信設定の詳細</a></p></details>
- </section><section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
+<section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r63 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r64 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -224,7 +217,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r63";
+const rankingRevision="2026.11.27-r64";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -426,19 +419,6 @@ function renderRanking(panel,data,stale=false){
  if(type==="nico"){list.replaceChildren(...items);nicoThumbPrune(new Set(data.entries.slice(0,10).map(row=>row.id)));}
  else{const keep=new Set(items);kickThumbPrune(new Set(items.map(li=>li.dataset.kickId)));for(const child of Array.from(list.children))if(!keep.has(child))child.remove();for(let i=0;i<items.length;i++){const node=items[i],at=list.children[i]||null;if(node===at)continue;if(node.parentNode===list&&typeof list.moveBefore==="function")list.moveBefore(node,at);else list.insertBefore(node,at);}}
 }
-async function checkKickApi(){
- const button=document.getElementById("kick-api-check"),status=document.getElementById("kick-api-result");
- button.disabled=true;status.textContent="Kick公式APIに接続中…";
- try{
-  const response=await fetch("/api/kick-connection",{cache:"no-store",signal:AbortSignal.timeout(35000)});if(!response.ok)throw Error("HTTP "+response.status);
-  const d=await response.json();if(typeof d.configured!=="boolean")throw Error("応答形式不正");
-  const values={"kick-id-status":d.clientIdConfigured?"設定済み":"未設定","kick-secret-status":d.clientSecretConfigured?"設定済み":"未設定","kick-token-status":d.tokenStatus,"kick-live-status":d.livestreamStatus,"kick-sub-status":d.giftApiStatus,"kick-db-status":d.giftDbStatus,"kick-hook-status":d.giftSubscriptionsConfigured?"ID設定済み（受信未確認）":"未設定"};
-  for(const [id,value] of Object.entries(values))document.getElementById(id).textContent=typeof value==="string"?value:"未確認";
-  status.textContent=(d.livestreamStatus==="接続成功"?"公式API接続確認成功":d.configured?"接続結果を確認してください":"管理者のAPI認証設定が必要です")+" ／ 確認時刻 "+new Date(d.checkedAt).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});
- }catch{status.textContent="接続確認APIに通信できませんでした。再試行してください。";}finally{button.disabled=false;}
-}
-document.getElementById("kick-api-check").addEventListener("click",checkKickApi);
-document.getElementById("kick-hook-url").textContent=location.origin+"/api/kick-gift-events";
 async function checkRankingHealth(){const node=document.querySelector("#rank-health");try{const res=await fetch("/api/health",{cache:"no-store",signal:AbortSignal.timeout(10000)});if(!res.ok)throw Error("HTTP "+res.status);const d=await res.json();node.hidden=d.status==="ok"&&d.revision===rankingRevision;node.textContent=node.hidden?"":"公開版が旧版です。";}catch{node.hidden=false;node.textContent="ランキングAPIに接続できません。";}}
 async function loadRanking(force=false){
  if(document.hidden&&!force)return;
