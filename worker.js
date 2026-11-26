@@ -1677,7 +1677,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r93</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r94</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1731,7 +1731,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r93"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r94"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1742,7 +1742,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r93",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r94",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(url.pathname==="/api/rankings-live"){
   if(request.method!=="GET"||request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return json({status:"error",message:"WebSocket接続のみ対応"},426);
@@ -1784,7 +1784,8 @@ function kickRankingStream(request,env){
  return new Response(body,{headers:{"content-type":"application/x-ndjson; charset=utf-8","cache-control":"no-store, no-transform","x-content-type-options":"nosniff"}});
 }
 
-const LIVE_INTERVAL=20000,LIVE_MAX_CYCLES=2400,LIVE_MAX_WORK_MS=48000000,LIVE_RESERVE_MS=120000;
+const LIVE_INTERVAL=60000,LIVE_MAX_CYCLES=1440,LIVE_MAX_WORK_MS=48000000,LIVE_RESERVE_MS=120000;
+function nextLiveStart(last,now){return Math.max(now+100,(Number.isFinite(last)?last:0)+LIVE_INTERVAL);}
 function liveBudget(saved,now){
  const day=new Date(now).toISOString().slice(0,10);
  const b=saved?.day===day?saved:{day,cycles:0,workMs:0};
@@ -1839,8 +1840,10 @@ export class RankingLiveHub extends DurableObject{
   const stats=this.stats.size?[...this.stats.values()]:saved?.stats||[];
   if(stats.length)this.send(server,{kind:"nico-stats",data:{status:"ok",entries:stats.filter(r=>Date.now()-r.checkedAt<=180000)}});
   const b=liveBudget(await this.ctx.storage.get("budget"),Date.now());
-  this.send(server,{kind:"state",data:{message:b.allowed?"共有ライブ接続中":"無料運用上限・取得休止中",paused:!b.allowed}});
-  if(!this.running)await this.schedule(b.allowed?Date.now()+100:new Date(b.day+"T00:00:00Z").getTime()+86400000+1000);
+  const now=Date.now(),last=await this.ctx.storage.get("lastStart")||0;
+  const nextAt=b.allowed?nextLiveStart(last,now):new Date(b.day+"T00:00:00Z").getTime()+86400000+1000;
+  this.send(server,{kind:"state",data:{message:!b.allowed?"無料運用上限・取得休止中":this.running?"共有データ取得中":"60秒自動更新・共有接続中",paused:!b.allowed,updating:this.running,nextAt:this.running?null:nextAt}});
+  if(!this.running)await this.schedule(nextAt);
   return new Response(null,{status:101,webSocket:client});
  }
  async webSocketMessage(ws,message){
@@ -1849,7 +1852,7 @@ export class RankingLiveHub extends DurableObject{
   const now=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),now);
   if(!b.allowed||this.running)return;
   const last=await this.ctx.storage.get("lastStart")||0;
-  await this.schedule(Math.max(now+100,last+LIVE_INTERVAL));
+  await this.schedule(nextLiveStart(last,now));
  }
  webSocketClose(ws,code){try{if(code===1006)ws.close();else ws.close(code,"closed");}catch{}}
  webSocketError(ws){try{ws.close(1011,"connection error");}catch{}}
@@ -1857,8 +1860,10 @@ export class RankingLiveHub extends DurableObject{
   if(this.running||!this.clients().length)return;
   this.running=true;
   const start=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),start);
+  const last=await this.ctx.storage.get("lastStart")||0;
+  if(b.allowed&&start<last+LIVE_INTERVAL){this.running=false;await this.schedule(nextLiveStart(last,start));return;}
   if(!b.allowed){
-   this.broadcast("state",{message:"無料運用上限・取得休止中",paused:true});
+   this.broadcast("state",{message:"無料運用上限・取得休止中",paused:true,updating:false,nextAt:new Date(b.day+"T00:00:00Z").getTime()+86400000+1000});
    this.running=false;
    if(this.clients().length)await this.schedule(new Date(b.day+"T00:00:00Z").getTime()+86400000+1000);
    return;
@@ -1870,7 +1875,7 @@ export class RankingLiveHub extends DurableObject{
    const saved=await this.ctx.storage.get("snapshot")||{};
    for(const kind of ["nico","kick"])if(!this.latest.has(kind)&&saved[kind])this.latest.set(kind,saved[kind]);
    if(!this.stats.size)for(const row of saved.stats||[])this.stats.set(row.id,row);
-   this.broadcast("state",{message:"共有データ取得中",paused:false});
+   this.broadcast("state",{message:"共有データ取得中",paused:false,updating:true,nextAt:null});
    const feed=this.ctx.exports.RankingFeed;
    const receive=(kind,frame)=>{
     if(frame.status==="ok"&&Array.isArray(frame.entries)&&Number.isFinite(Date.parse(frame.fetchedAt))){
@@ -1891,13 +1896,13 @@ export class RankingLiveHub extends DurableObject{
    const kick=async()=>{await liveReadFrames(await feed.fetch("https://internal/kick"),frame=>receive("kick",frame));};
    const results=await Promise.allSettled([nico(),kick()]);
    await this.ctx.storage.put("snapshot",{nico:this.latest.get("nico")||null,kick:this.latest.get("kick")||null,stats:[...this.stats.values()].filter(r=>Date.now()-r.checkedAt<=180000)});
-   this.broadcast("state",{message:results.some(r=>r.status==="rejected")?"一部取得に失敗・次回再試行":"共有ライブ接続中",paused:false});
-  }catch{this.broadcast("state",{message:"共有取得エラー・再試行待ち",paused:false});}
+   this.broadcast("state",{message:results.some(r=>r.status==="rejected")?"一部取得に失敗・次回再試行":"60秒自動更新・共有接続中",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});
+  }catch{this.broadcast("state",{message:"共有取得エラー・再試行待ち",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});}
   finally{
    const elapsed=Math.max(0,Date.now()-start);
    try{await this.ctx.storage.put("budget",{day:reservation.day,cycles:reservation.cycles,workMs:b.workMs+elapsed});}catch{}
    this.running=false;
-   if(this.clients().length)await this.schedule(Date.now()+Math.max(LIVE_INTERVAL,elapsed>45000?30000:LIVE_INTERVAL));
+   if(this.clients().length)await this.schedule(nextLiveStart(start,Date.now()));
   }
  }
 }
