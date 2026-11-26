@@ -567,7 +567,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r61":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -969,17 +969,40 @@ async function kickRanking(env){
  const result=kickPage(JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}})));rows.push(...result.entries);excluded+=result.excluded;cursor=result.cursor;if(!cursor){complete=result.complete;break;}if(seen.has(cursor))break;seen.add(cursor);}
  return {source:"Kick公式API",sourceUrl:"https://kick.com/",complete:complete&&excluded===0,metric:"日本語配信・同時視聴者数順",fetchedAt:new Date().toISOString(),entries:rankKick(rows)};
 }
+function kickChatTime(value){
+ if(typeof value!=="string")return NaN;
+ // Kick's older public endpoint uses timezone-less UTC timestamps.
+ return Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:\.\d+)?$/.test(value)?value.replace(" ","T")+"Z":value);
+}
+function kickChatId(value){
+ if(typeof value==="number")return Number.isSafeInteger(value)&&value>0?String(value):"";
+ return typeof value==="string"&&value.length<=128&&/^[a-zA-Z0-9_-]+$/.test(value)?value:"";
+}
 function recentKickSample(payload,roomId,startedAt,now){
  const messages=payload?.data?.messages;
- if(!Array.isArray(messages)||!Number.isFinite(startedAt)||startedAt>now||messages.length>1000)return null;
- const ids=new Set(),senders=new Set();let missingSender=false;
+ if(!Array.isArray(messages)||!messages.length||messages.length>1000||!Number.isFinite(startedAt)||startedAt>now)return null;
+ const cutoff=Math.max(startedAt,now-60000),ids=new Set(),senders=new Set();
+ let covered=false,missingSender=false,valid=0,uncertain=false;
  for(const msg of messages){
-  if(!msg||String(msg.chatroom_id)!==String(roomId))continue;
-  const t=Date.parse(msg.created_at);if(!Number.isFinite(t)||t<Math.max(startedAt,now-600000)||t>now)continue;
-  if(!["message","reply"].includes(msg.type)||typeof msg.id!=="string"||!msg.id||ids.has(msg.id))continue;
-  ids.add(msg.id);if(Number.isSafeInteger(msg.sender?.id)&&msg.sender.id>0)senders.add(msg.sender.id);else missingSender=true;
+  if(!msg||typeof msg!=="object"){uncertain=true;continue;}
+  // The fixed channel endpoint is already scoped to the verified channel.
+  // Reject explicit room mismatches; older responses may omit chatroom_id.
+  if(msg.chatroom_id!=null&&(!roomId||String(msg.chatroom_id)!==String(roomId))){uncertain=true;continue;}
+  const at=kickChatTime(msg.created_at),id=kickChatId(msg.id);
+  if(!id||!Number.isFinite(at)||at>now){uncertain=true;continue;}
+  valid++;
+  if(at<=cutoff){covered=true;continue;}
+  if(msg.type!=null&&!["message","reply"].includes(msg.type)){uncertain=true;continue;}
+  if(ids.has(id))continue;
+  ids.add(id);
+  const sender=kickChatId(msg.sender?.id);
+  if(sender&&/^[1-9]\d*$/.test(sender))senders.add(sender);else missingSender=true;
  }
- return {receivedComments:ids.size,activeUsers:missingSender?null:senders.size,sampledAt:new Date(now).toISOString()};
+ if(!valid)return null;
+ const complete=covered&&!uncertain;
+ // Never report zero from an empty/unrecognized/truncated snapshot.
+ if(!ids.size&&!complete)return null;
+ return {receivedComments:ids.size,activeUsers:missingSender?null:senders.size,chatPartial:!complete,chatWindowSeconds:Math.max(1,Math.ceil((now-cutoff)/1000)),sampledAt:new Date(now).toISOString()};
 }
 function kickGiftedSubs(payload,slug){
  const rows=payload?.data;if(!Array.isArray(rows))return null;
@@ -1042,25 +1065,26 @@ async function enrichKickPublicMetrics(data,origin,env){
  const missing=[];
  for(const row of rows){
   if(!/^[a-z0-9_-]{1,40}$/.test(row.id))continue;
-  const key=new Request(origin+"/__cache/kick-sample-r23/"+row.id);
-  try{const saved=await caches.default.match(key);if(saved){const s=await saved.json();if(s&&s.startedAt&&(!row.startedAt||Date.parse(row.startedAt)===Date.parse(s.startedAt))){Object.assign(row,s);continue;}if(s===null)continue;}}catch{}
+  const key=new Request(origin+"/__cache/kick-sample-r61/"+row.id);
+  try{const saved=await caches.default.match(key);if(saved){const s=await saved.json();if(s&&s.startedAt&&(!row.startedAt||Math.abs(Date.parse(row.startedAt)-Date.parse(s.startedAt))<=60000)){Object.assign(row,s);continue;}if(s===null)continue;}}catch{}
   missing.push({row,key});
  }
- // Bound each refresh to two channels; reuse aggregates for 120 seconds.
+ // Bound each refresh to two channels; reuse aggregates for 60 seconds.
  await Promise.all(missing.slice(0,2).map(async({row,key})=>{
   let result=null;
   try{
    const channel=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(row.id),{headers:{accept:"application/json"}},1024*1024));
-   const channelId=channel?.id,room=channel?.chatroom?.id,live=channel?.livestream;
-   if(typeof channel.slug!=="string"||channel.slug.toLowerCase()!==row.id||!Number.isSafeInteger(channelId)||channelId<=0||!Number.isSafeInteger(room)||room<=0||!live||live.is_live!==true)throw Error("channel not verified live");
-   const start=time(live.start_time??live.created_at??live.started_at),ts=Date.parse(start);
-   if(!Number.isFinite(ts)||(row.startedAt&&Date.parse(row.startedAt)!==ts))throw Error("stream identity mismatch");
+   const channelId=channel?.id,room=kickChatId(channel?.chatroom?.id),live=channel?.livestream;
+   if(typeof channel.slug!=="string"||channel.slug.toLowerCase()!==row.id||!kickChatId(channelId)||!/^\d+$/.test(String(channelId))||!live||live.is_live===false)throw Error("channel not verified live");
+   const rawStart=live.start_time??live.created_at??live.started_at;
+   const start=typeof rawStart==="string"&&Number.isFinite(kickChatTime(rawStart))?new Date(kickChatTime(rawStart)).toISOString():time(rawStart),ts=Date.parse(start);
+   if(!Number.isFinite(ts)||(row.startedAt&&Math.abs(Date.parse(row.startedAt)-ts)>60000))throw Error("stream identity mismatch");
    const payload=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+channelId+"/messages",{headers:{accept:"application/json"}},1024*1024));
    const sample=recentKickSample(payload,room,ts,Date.now());
    if(sample)result={...sample,startedAt:start};
    if(result)Object.assign(row,result);
   }catch{}
-  try{await caches.default.put(key,json(result,200,"public, max-age=120"));}catch{}
+  try{await caches.default.put(key,json(result,200,"public, max-age="+(result?60:30)));}catch{}
  }));
  const enriched=rows.some(row=>!row.thumbnail&&!row.thumbnailCandidates?.length)?mergeShobonThumbnails(rows,await shobonThumbnailSnapshot(origin)):rows;
  return {...data,entries:enriched};
@@ -1406,7 +1430,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r60",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r61",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
