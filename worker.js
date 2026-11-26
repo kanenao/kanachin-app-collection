@@ -567,7 +567,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r75":RANK_CACHE_REVISION)));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r76":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -993,29 +993,33 @@ function kickChatId(value){
 function recentKickSample(payload,roomId,startedAt,now,terminal=false){
  const messages=payload?.data?.messages;
  if(!Array.isArray(messages)||!messages.length||messages.length>12000||!Number.isFinite(startedAt)||startedAt>now)return null;
- const chatCutoff=Math.max(startedAt,now-60000),activeCutoff=Math.max(startedAt,now-600000),ids=new Set(),chatIds=new Set(),senders=new Set();
- let chatCovered=false,activeCovered=false,missingSender=false,valid=0,chatUncertain=false,activeUncertain=false,previous=Infinity;
+ const windows=[30,15,10].filter(sec=>now-startedAt>=sec*1000).map(sec=>({sec,cutoff:now-sec*1000,covered:false,uncertain:false,ids:new Set()}));
+ const activeCutoff=Math.max(startedAt,now-600000),ids=new Set(),senders=new Set();
+ let activeCovered=false,missingSender=false,valid=0,activeUncertain=false,previous=Infinity;
  for(const msg of messages){
   const at=kickChatTime(msg?.created_at),id=kickChatId(msg?.id);
   const invalid=!msg||typeof msg!=="object"||!id||!Number.isFinite(at)||at>now||at>previous||(msg.chatroom_id!=null&&(!roomId||String(msg.chatroom_id)!==String(roomId)));
-  if(invalid){if(!Number.isFinite(at)||at>chatCutoff)chatUncertain=true;if(!Number.isFinite(at)||at>activeCutoff)activeUncertain=true;continue;}
+  if(invalid){for(const v of windows)if(!Number.isFinite(at)||at>v.cutoff)v.uncertain=true;if(!Number.isFinite(at)||at>activeCutoff)activeUncertain=true;continue;}
   previous=at;valid++;
-  if(at<=chatCutoff)chatCovered=true;
+  for(const v of windows)if(at<=v.cutoff)v.covered=true;
   if(at<=activeCutoff){activeCovered=true;continue;}
-  if(msg.type!=null&&!["message","reply","celebration"].includes(msg.type)){if(at>chatCutoff)chatUncertain=true;activeUncertain=true;continue;}
+  if(msg.type!=null&&!["message","reply","celebration"].includes(msg.type)){for(const v of windows)if(at>v.cutoff)v.uncertain=true;activeUncertain=true;continue;}
   if(ids.has(id))continue;
-  ids.add(id);if(at>chatCutoff)chatIds.add(id);
+  ids.add(id);
+  for(const v of windows)if(at>v.cutoff)v.ids.add(id);
   const sender=kickChatId(msg.sender?.id);
   if(sender&&/^[1-9]\d*$/.test(sender))senders.add(sender);else missingSender=true;
  }
  if(!valid)return null;
- const chatComplete=(chatCovered||terminal)&&!chatUncertain,activeComplete=(activeCovered||terminal)&&!activeUncertain&&!missingSender;
- return {receivedComments:chatComplete?chatIds.size:null,activeUsers:activeComplete?senders.size:null,chatPartial:!chatComplete,activePartial:!activeComplete,chatStage:chatComplete?"直近1分の履歴範囲確認済み":"直近1分の履歴不足",activeStage:activeComplete?"直近10分の履歴範囲確認済み":missingSender?"投稿者ID未取得":"直近10分の履歴不足",chatWindowSeconds:Math.max(1,Math.ceil((now-chatCutoff)/1000)),activeWindowSeconds:Math.max(1,Math.ceil((now-activeCutoff)/1000)),sampledAt:new Date(now).toISOString()};
+ const chatCounts=Object.fromEntries(windows.filter(v=>(v.covered||terminal)&&!v.uncertain).map(v=>[v.sec,v.ids.size]));
+ const chatWindowSeconds=[30,15,10].find(sec=>Number.isSafeInteger(chatCounts[sec]))??null;
+ const activeComplete=(activeCovered||terminal)&&!activeUncertain&&!missingSender;
+ return {receivedComments:chatWindowSeconds===null?null:chatCounts[chatWindowSeconds],chatCounts,activeUsers:activeComplete?senders.size:null,chatPartial:chatWindowSeconds===null,activePartial:!activeComplete,chatStage:chatWindowSeconds===null?"直近10秒以上の履歴確認待ち":"直近"+chatWindowSeconds+"秒の履歴範囲確認済み",activeStage:activeComplete?"直近10分の履歴範囲確認済み":missingSender?"投稿者ID未取得":"直近10分の履歴不足",chatWindowSeconds,activeWindowSeconds:Math.max(1,Math.ceil((now-activeCutoff)/1000)),sampledAt:new Date(now).toISOString()};
 }
 async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,windowMs=600000){
  const messages=[],seen=new Set(),deadline=clock()+8500;
  let cursor="",now=null,terminal=false,last=Infinity;
- for(let page=0;page<(windowMs===60000?3:12);page++){
+ for(let page=0;page<(windowMs===30000?3:12);page++){
   if(page&&clock()>=deadline)break;
   let payload;
   try{payload=await readPage(cursor);}catch{break;}
@@ -1183,11 +1187,11 @@ async function enrichKickPublicMetrics(data,origin,env){
  const cachePut=async(key,value,ttl)=>{try{await caches.default.put(key,json(value,200,"public, max-age="+ttl));}catch{}};
  const sameStream=(row,sample)=>sample&&Number.isFinite(Date.parse(sample.startedAt))&&(!row.startedAt||Math.abs(Date.parse(row.startedAt)-Date.parse(sample.startedAt))<=60000);
  const ageOf=(value,key)=>{const t=Date.parse(value?.[key]);return Number.isFinite(t)&&t<=clock?clock-t:Infinity;};
- const applyChat=(row,value)=>{for(const k of ["receivedComments","chatPartial","chatStage","chatWindowSeconds","sampledAt"])row[k]=value[k];};
+ const applyChat=(row,value)=>{for(const k of ["receivedComments","chatCounts","chatPartial","chatStage","chatWindowSeconds","sampledAt"])row[k]=value[k];};
  const applyActive=(row,value)=>{for(const k of ["activeUsers","activePartial","activeStage","activeWindowSeconds","activeSampledAt"])row[k]=value[k];};
  await Promise.all(rows.map(async row=>{
   if(!/^[a-z0-9_-]{1,40}$/.test(row.id))return;
-  const chatKey=new Request(origin+"/__cache/kick-chat-r75/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r75/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
+  const chatKey=new Request(origin+"/__cache/kick-chat-r76/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r75/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
   let [chat,active]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey)]);
   if(!sameStream(row,chat))chat=null;if(!sameStream(row,active))active=null;
   const chatAge=ageOf(chat,"sampledAt"),activeAge=ageOf(active,"activeSampledAt");
@@ -1214,9 +1218,9 @@ async function enrichKickPublicMetrics(data,origin,env){
     if(!sameStream(row,identity))throw Error("stream identity mismatch");
     await cachePut(identityKey,identity,120);
    }
-   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:60000);
+   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:30000);
    if(!sample)throw Error("history unavailable");
-   const chat={startedAt:identity.startedAt,receivedComments:sample.receivedComments,chatPartial:sample.chatPartial,chatStage:sample.chatStage,chatWindowSeconds:sample.chatWindowSeconds,sampledAt:sample.sampledAt};
+   const chat={startedAt:identity.startedAt,receivedComments:sample.receivedComments,chatCounts:sample.chatCounts,chatPartial:sample.chatPartial,chatStage:sample.chatStage,chatWindowSeconds:sample.chatWindowSeconds,sampledAt:sample.sampledAt};
    // A failed refresh cannot silently replace a prior verified count with zero.
    if(!chat.chatPartial||row.receivedComments==null){applyChat(row,chat);await cachePut(chatKey,chat,45);}
    if(full||sample.activePartial===false){
@@ -1639,7 +1643,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r75</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r76</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1696,7 +1700,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r75"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r76"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
