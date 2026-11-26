@@ -501,7 +501,7 @@ function activityAggregate(events,end,coveredSince){
  return {active10m:count(600),active60s:count(60)};
 }
 function activityFeedUrl(raw){
- try{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||!u.hostname.endsWith(".nicovideo.jp")||!/^\/api\/(?:view|segment|backward|packed)\//.test(u.pathname))return null;return u;}catch{return null;}
+ try{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||u.hostname!=="mpn.live.nicovideo.jp"||!/^\/(?:api\/view|(?:api|data)\/(?:segment|backward|packed))\//.test(u.pathname))return null;return u;}catch{return null;}
 }
 async function activityBytes(url,signal){
  const res=await fetch(url,{signal,redirect:"error"});if(!res.ok||!res.body)throw Error("feed unavailable");
@@ -521,7 +521,7 @@ async function* activityFrames(url,signal){
 // no continuous listener, no persisted comment contents or sender identifiers.
 async function sampleNicoActivity(raw){
  const view=activityFeedUrl(raw);if(!view)return null;
- const signal=AbortSignal.timeout(9500),now=Math.floor(Date.now()/1000),decode=b=>activityFeedUrl(new TextDecoder().decode(b));
+ const signal=AbortSignal.timeout(12000),now=Math.floor(Date.now()/1000),decode=b=>activityFeedUrl(new TextDecoder().decode(b));
  view.searchParams.set("at","now");let segment=null;
  try{
   for await(const e of activityFrames(view,signal)){
@@ -529,9 +529,10 @@ async function sampleNicoActivity(raw){
     const back=activityFields(e.get(2)),end=Number(activityFields(back.get(1)).get(1));
     if(end<=now+2&&end>=now-180&&back.has(2)){const url=decode(activityFields(back.get(2)).get(1));if(url){segment={end,url,packed:true};break;}}
    }
-   const raw=e.get(3)||e.get(1);if(!raw)continue;
+   if(e.has(4)&&segment)break;
+   const raw=e.get(3);if(!raw)continue;
    const info=activityFields(raw),start=Number(activityFields(info.get(1)).get(1)),end=Number(activityFields(info.get(2)).get(1)),url=decode(info.get(3));
-   if(url&&start<end&&end<=now&&end>=now-180){segment={start,end,url,packed:false};break;}
+   if(url&&start<end&&end<=now&&end>=now-180){segment={start,end,url,packed:false};}
   }
   if(!segment)return null;
   const events=[];let covered=segment.end,unknownTime=false;
@@ -540,12 +541,12 @@ async function sampleNicoActivity(raw){
    const message=activityFields(chunk.get(2)),raw=message.get(1)||message.get(20);if(!raw)return;
    const at=Number(activityFields(activityFields(chunk.get(1)).get(2)).get(1));if(!Number.isSafeInteger(at)){unknownTime=true;return;}
    if(at<segment.end-600||at>segment.end)return;
-   const chat=activityFields(raw),sender=chat.has(5)?"u"+String(chat.get(5)):chat.get(6)?.length?"h"+new TextDecoder().decode(chat.get(6)):null;
+   const chat=activityFields(raw),sender=typeof chat.get(5)==="bigint"&&chat.get(5)>0n?"u"+String(chat.get(5)):chat.get(6)?.length?"h"+new TextDecoder().decode(chat.get(6)):null;
    if(events.length>=20000)throw Error("too many comments");events.push({at,sender});
   }
   if(segment.packed){
    let url=segment.url,oldest=segment.end,seen=new Set();
-   for(let i=0;url&&i<4;i++){
+   for(let i=0;url&&i<6;i++){
     if(seen.has(url.href))throw Error("repeated history");seen.add(url.href);
     const packet=activityFields(await activityBytes(url,signal),1,b=>{const chunk=activityFields(b),at=Number(activityFields(activityFields(chunk.get(1)).get(2)).get(1));if(!Number.isSafeInteger(at)){unknownTime=true;return;}oldest=Math.min(oldest,at);record(chunk);});
     covered=oldest;if(covered<=segment.end-600)break;
@@ -601,8 +602,14 @@ async function enrichPublicNico(rows,origin){
  const missing=[];
  function apply(row,detail){if(!detail)return;for(const k of ["name","profileUrl","historyOwner","providerKind","advertising","gift","visitors","comments","startedAt","thumbnailUrl","active10m","active60s","activitySampleEnd"])if((row[k]==null||row[k]==="")&&detail[k]!=null&&detail[k]!=="")row[k]=detail[k];row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),...(detail.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);row.programThumbnails=[...new Set([...(detail.programThumbnails||[]),...(row.programThumbnails||[])])].slice(0,8);}
  const rotation=Math.floor(Date.now()/10000)%10;const ordered=[...candidates].sort((a,b)=>((rows.indexOf(a)-rotation+10)%10)-((rows.indexOf(b)-rotation+10)%10));
- for(const row of ordered){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r41");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
- await Promise.all(missing.slice(0,3).map(async({row,key})=>{let detail=null;try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail){const endpoint=detail.statisticsEndpoint;delete detail.statisticsEndpoint;const wantActivity=row.active10m==null;if((row.advertising==null&&detail.advertising==null)||(row.gift==null&&detail.gift==null)||wantActivity){const stats=await fetchNicoStatistics(endpoint,wantActivity);if(stats){for(const k of ["advertising","gift","visitors","comments"])if(stats[k]!=null)detail[k]=stats[k];if(wantActivity&&stats.viewUri){const activity=await sampleNicoActivity(stats.viewUri);if(activity)Object.assign(detail,activity);}}}}}catch{}apply(row,detail);try{await caches.default.put(key,json(detail,200,"public, max-age="+(detail&&detail.advertising!=null&&detail.gift!=null&&detail.active10m!=null?120:90)));}catch{}}));
+ for(const row of ordered){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r42");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
+ await Promise.all(missing.slice(0,3).map(async({row,key})=>{
+  let detail=null;
+  try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail)delete detail.statisticsEndpoint;}catch{}
+  apply(row,detail);
+  try{await caches.default.put(key,json(detail,200,"public, max-age="+(detail?120:60)));}catch{}
+ }));
+
 }
 
 function parseArchiveRanking(html,service){
@@ -900,7 +907,7 @@ async function liveThumbnail(request){
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
- for(const suffix of ["?revision=r41","?last-good=r41"]){
+ for(const suffix of ["?revision=r42","?last-good=r42"]){
   try{const response=await caches.default.match(new Request(url.origin+"/api/rankings/"+type+suffix));const data=response&&await response.json();if(Array.isArray(data?.entries)&&data.entries.some(x=>x.id===id)){rows=data.entries;break;}}catch{}
  }
  if(!rows.length)return new Response(null,{status:404,headers:{"cache-control":"no-store"}});
@@ -929,15 +936,68 @@ async function liveThumbnail(request){
  return result;
 }
 
+function statisticsFields(result){
+ const out={};
+ for(const k of ["advertising","gift","active10m","active60s","activitySampleEnd"])if(Number.isSafeInteger(result?.[k])&&result[k]>=0)out[k]=result[k];
+ return out;
+}
+async function nicoSupplementalStatistics(request){
+ if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
+ const url=new URL(request.url),origin=url.origin;
+ let rank=null;
+ for(const suffix of ["?revision=r42","?last-good=r42"]){try{const hit=await caches.default.match(new Request(origin+"/api/rankings/nico"+suffix));if(hit){rank=await hit.json();if(Array.isArray(rank.entries)&&rank.entries.length)break;}}catch{}}
+ if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
+ const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
+ for(const row of rows){
+  const key=new Request(origin+"/__cache/nico-stats-r42/"+row.id);
+  let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
+  if(saved){results.push(saved);continue;}
+  const fields=statisticsFields(row);
+  if(fields.advertising!=null&&fields.gift!=null&&fields.active10m!=null){results.push({id:row.id,...fields,stage:"公開統計取得済み",checkedAt:Date.now()});continue;}
+  pending.push({row,key});
+ }
+ const rotation=Math.floor(Date.now()/10000)%10;
+ pending.sort((a,b)=>((rows.indexOf(a.row)-rotation+10)%10)-((rows.indexOf(b.row)-rotation+10)%10));
+ await Promise.all(pending.slice(0,2).map(async({row,key})=>{
+  const result={id:row.id,...statisticsFields(row),stage:"番組情報取得失敗",checkedAt:Date.now()};
+  try{
+   const page=await fetchBounded("https://live.nicovideo.jp/watch/"+row.id,{headers:{accept:"text/html"}},6*1024*1024);
+   const detail=publicNicoDetail(page,row.id);
+   if(detail){
+    for(const [k,v] of Object.entries(statisticsFields(detail)))if(result[k]==null)result[k]=v;
+    result.stage="公式統計接続先未取得";
+    if(detail.statisticsEndpoint){
+     const wantActivity=result.active10m==null;
+     const stat=await fetchNicoStatistics(detail.statisticsEndpoint,wantActivity);
+     result.stage=stat?"公式統計受信・項目未取得":"公式統計通信失敗";
+     if(stat){
+      Object.assign(result,statisticsFields(stat));
+      if(wantActivity&&stat.viewUri){
+       const activity=await sampleNicoActivity(stat.viewUri);
+       if(activity){Object.assign(result,statisticsFields(activity));result.stage=result.active10m==null?"10分履歴不足":"10分履歴取得済み";}
+       else result.stage="コメント履歴取得失敗";
+      }else if(wantActivity)result.stage="コメント履歴接続先未取得";
+     }
+    }
+   }
+  }catch(e){result.stage="番組情報: "+diagnostic(e);}
+  if(result.advertising!=null&&result.gift!=null&&result.active10m!=null)result.stage="3項目取得済み";
+  result.checkedAt=Date.now();results.push(result);
+  try{await caches.default.put(key,json(result,200,"public, max-age="+(result.stage==="3項目取得済み"?120:90)));}catch{}
+ }));
+ return json({status:"ok",entries:results,pending:Math.max(0,pending.length-2)},200,"no-store");
+}
+
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
+ if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r41",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r42",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r41"),backup=new Request(url.origin+url.pathname+"?last-good=r41");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r42"),backup=new Request(url.origin+url.pathname+"?last-good=r42");
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
