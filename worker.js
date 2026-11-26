@@ -567,7 +567,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r74":RANK_CACHE_REVISION)));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r75":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -1012,10 +1012,10 @@ function recentKickSample(payload,roomId,startedAt,now,terminal=false){
  const chatComplete=(chatCovered||terminal)&&!chatUncertain,activeComplete=(activeCovered||terminal)&&!activeUncertain&&!missingSender;
  return {receivedComments:chatComplete?chatIds.size:null,activeUsers:activeComplete?senders.size:null,chatPartial:!chatComplete,activePartial:!activeComplete,chatStage:chatComplete?"直近1分の履歴範囲確認済み":"直近1分の履歴不足",activeStage:activeComplete?"直近10分の履歴範囲確認済み":missingSender?"投稿者ID未取得":"直近10分の履歴不足",chatWindowSeconds:Math.max(1,Math.ceil((now-chatCutoff)/1000)),activeWindowSeconds:Math.max(1,Math.ceil((now-activeCutoff)/1000)),sampledAt:new Date(now).toISOString()};
 }
-async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now){
+async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,windowMs=600000){
  const messages=[],seen=new Set(),deadline=clock()+8500;
  let cursor="",now=null,terminal=false,last=Infinity;
- for(let page=0;page<12;page++){
+ for(let page=0;page<(windowMs===60000?3:12);page++){
   if(page&&clock()>=deadline)break;
   let payload;
   try{payload=await readPage(cursor);}catch{break;}
@@ -1027,7 +1027,7 @@ async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now){
   for(const m of items){const t=kickChatTime(m?.created_at);if(!Number.isFinite(t)||t>boundary){ordered=false;break;}boundary=t;}
   if(!ordered)break;
   messages.push(...items);last=boundary;
-  if(items.length&&last<=Math.max(startedAt,now-600000))break;
+  if(items.length&&last<=Math.max(startedAt,now-windowMs))break;
   // An explicit null cursor on a nonempty, short final page establishes exhaustion.
   // An empty response alone (or a capped page with no cursor) is not proof.
   if(Object.prototype.hasOwnProperty.call(data,"cursor")&&data.cursor===null&&items.length>0&&items.length<25){terminal=true;break;}
@@ -1176,29 +1176,54 @@ async function enrichKickPublicMetrics(data,origin,env){
   }catch(e){for(const row of rows)row.giftedSubscriptionsStage="公式API: "+diagnostic(e);}
  }
  await enrichOfficialKickGiftEvents(rows,env);
- // Recent public chat snapshots only: no WebSocket, webhook, user records, or chat archive.
- const missing=[];
- for(const row of rows){
-  if(!/^[a-z0-9_-]{1,40}$/.test(row.id))continue;
-  const key=new Request(origin+"/__cache/kick-sample-r74/"+row.id);
-  try{const saved=await caches.default.match(key);if(saved){const s=await saved.json();if(s&&s.startedAt&&(!row.startedAt||Math.abs(Date.parse(row.startedAt)-Date.parse(s.startedAt))<=60000)){Object.assign(row,s);continue;}if(s===null)continue;}}catch{}
-  missing.push({row,key});
- }
- // Bound each refresh to two channels; reuse aggregates for 60 seconds.
- await Promise.all(missing.slice(0,2).map(async({row,key})=>{
-  let result=null;
+ // Keep short chat and longer activity aggregates on separate freshness clocks.
+ // Public cache contains counts and stream identity only, never message bodies or sender IDs.
+ const targets=[],clock=Date.now();
+ const cacheRead=async key=>{try{const hit=await caches.default.match(key);return hit?await hit.json():null;}catch{return null;}};
+ const cachePut=async(key,value,ttl)=>{try{await caches.default.put(key,json(value,200,"public, max-age="+ttl));}catch{}};
+ const sameStream=(row,sample)=>sample&&Number.isFinite(Date.parse(sample.startedAt))&&(!row.startedAt||Math.abs(Date.parse(row.startedAt)-Date.parse(sample.startedAt))<=60000);
+ const ageOf=(value,key)=>{const t=Date.parse(value?.[key]);return Number.isFinite(t)&&t<=clock?clock-t:Infinity;};
+ const applyChat=(row,value)=>{for(const k of ["receivedComments","chatPartial","chatStage","chatWindowSeconds","sampledAt"])row[k]=value[k];};
+ const applyActive=(row,value)=>{for(const k of ["activeUsers","activePartial","activeStage","activeWindowSeconds","activeSampledAt"])row[k]=value[k];};
+ await Promise.all(rows.map(async row=>{
+  if(!/^[a-z0-9_-]{1,40}$/.test(row.id))return;
+  const chatKey=new Request(origin+"/__cache/kick-chat-r75/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r75/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
+  let [chat,active]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey)]);
+  if(!sameStream(row,chat))chat=null;if(!sameStream(row,active))active=null;
+  const chatAge=ageOf(chat,"sampledAt"),activeAge=ageOf(active,"activeSampledAt");
+  if(chat&&chatAge<=45000)applyChat(row,chat);
+  if(active&&activeAge<=90000)applyActive(row,active);
+  targets.push({row,chatKey,activeKey,identityKey,chatAge,activeAge});
+ }));
+ const rotation=Math.floor(clock/10000)%Math.max(1,rows.length);
+ const tie=t=>(rows.indexOf(t.row)-rotation+rows.length)%rows.length;
+ const oldest=(key)=>(a,b)=>(a[key]===b[key]?tie(a)-tie(b):a[key]<b[key]?-1:1);
+ const long=targets.filter(t=>t.activeAge>=60000).sort(oldest("activeAge")).slice(0,2);
+ const longIds=new Set(long.map(t=>t.row.id));
+ const short=targets.filter(t=>!longIds.has(t.row.id)&&t.chatAge>=10000).sort(oldest("chatAge")).slice(0,Math.max(0,4-long.length));
+ await Promise.all([...long.map(t=>({...t,full:true})),...short.map(t=>({...t,full:false}))].map(async({row,chatKey,activeKey,identityKey,full})=>{
   try{
-   const channel=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(row.id),{headers:{accept:"application/json"}},1024*1024));
-   const channelId=channel?.id,room=kickChatId(channel?.chatroom?.id),live=channel?.livestream;
-   if(typeof channel.slug!=="string"||channel.slug.toLowerCase()!==row.id||!kickChatId(channelId)||!/^\d+$/.test(String(channelId))||!live||live.is_live===false)throw Error("channel not verified live");
-   const rawStart=live.start_time??live.created_at??live.started_at;
-   const start=typeof rawStart==="string"&&Number.isFinite(kickChatTime(rawStart))?new Date(kickChatTime(rawStart)).toISOString():time(rawStart),ts=Date.parse(start);
-   if(!Number.isFinite(ts)||(row.startedAt&&Math.abs(Date.parse(row.startedAt)-ts)>60000))throw Error("stream identity mismatch");
-   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},room,ts);
-   if(sample)result={...sample,startedAt:start};
-   if(result)Object.assign(row,result);
-  }catch{}
-  try{await caches.default.put(key,json(result,200,"public, max-age="+(result?60:30)));}catch{}
+   let identity=await cacheRead(identityKey);
+   if(!sameStream(row,identity)||!row.startedAt){
+    const channel=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(row.id),{headers:{accept:"application/json"}},1024*1024));
+    const channelId=channel?.id,room=kickChatId(channel?.chatroom?.id),live=channel?.livestream;
+    if(typeof channel.slug!=="string"||channel.slug.toLowerCase()!==row.id||!kickChatId(channelId)||!/^\d+$/.test(String(channelId))||!live||live.is_live===false)throw Error("channel not verified live");
+    const rawStart=live.start_time??live.created_at??live.started_at;
+    const startedAt=typeof rawStart==="string"&&Number.isFinite(kickChatTime(rawStart))?new Date(kickChatTime(rawStart)).toISOString():time(rawStart);
+    identity={channelId,room,startedAt};
+    if(!sameStream(row,identity))throw Error("stream identity mismatch");
+    await cachePut(identityKey,identity,120);
+   }
+   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:60000);
+   if(!sample)throw Error("history unavailable");
+   const chat={startedAt:identity.startedAt,receivedComments:sample.receivedComments,chatPartial:sample.chatPartial,chatStage:sample.chatStage,chatWindowSeconds:sample.chatWindowSeconds,sampledAt:sample.sampledAt};
+   // A failed refresh cannot silently replace a prior verified count with zero.
+   if(!chat.chatPartial||row.receivedComments==null){applyChat(row,chat);await cachePut(chatKey,chat,45);}
+   if(full||sample.activePartial===false){
+    const active={startedAt:identity.startedAt,activeUsers:sample.activeUsers,activePartial:sample.activePartial,activeStage:sample.activeStage,activeWindowSeconds:sample.activeWindowSeconds,activeSampledAt:sample.sampledAt};
+    if(!active.activePartial||row.activeUsers==null){applyActive(row,active);await cachePut(activeKey,active,90);}
+   }
+  }catch{if(row.receivedComments==null)row.chatStage="最新チャット取得待ち";}
  }));
  const enriched=rows.some(row=>!row.thumbnail&&!row.thumbnailCandidates?.length)?mergeShobonThumbnails(rows,await shobonThumbnailSnapshot(origin)):rows;
  return {...data,entries:enriched};
@@ -1614,7 +1639,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r74</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r75</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1671,7 +1696,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r74"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r75"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
