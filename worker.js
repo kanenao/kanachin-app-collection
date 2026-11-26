@@ -980,6 +980,42 @@ async function resolveThumbnailCandidates(type,id,rows){
 
  return type==="kick"?fromRank.map(v=>validatedThumb(v,"kick")).filter(Boolean):fromRank;
 }
+function parseKickReferenceImages(html){
+ const rows=new Map(),safe=String(html||"").replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
+ const attr=(tag,key)=>tag.match(new RegExp("(?:^|\\s)"+key+"\\s*=\\s*([\"'])([\\s\\S]*?)\\1","i"))?.[2]?.replace(/&amp;/g,"&")||"";
+ for(const match of safe.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){
+  const id=/^https:\/\/(?:www\.)?kick\.com\/([a-z0-9_-]{1,40})\/?(?:[?#][^\s]*)?$/i.exec(attr(match[1],"href"))?.[1]?.toLowerCase();
+  if(!id)continue;
+  for(const [tag] of match[2].matchAll(/<img\b[^>]*>/gi)){
+   if(/(?:avatar|profile|logo|usericon)/i.test(tag))continue;
+   for(const key of ["data-src","data-original","data-lazy-src","src"]){
+    const value=attr(tag,key);
+    // Never infer a CDN path from the basename alone, or reuse the profile icon.
+    if(!/^https:\/\/[^/?#]+\/[^?#]*\/thumbnail\.jpe?g(?:[?#].*)?$/i.test(value))continue;
+    if(!rows.has(id))rows.set(id,[]);
+    if(!rows.get(id).includes(value)&&rows.get(id).length<3)rows.get(id).push(value);
+   }
+  }
+ }
+ return rows;
+}
+async function kickReferenceImages(origin,id){
+ const key=new Request(origin+"/__cache/kick-reference-images-r50");
+ try{
+  const saved=await caches.default.match(key);
+  if(saved){const rows=await saved.json();return Array.isArray(rows[id])?rows[id]:[];}
+ }catch{}
+ try{
+  const html=await fetchBounded("https://cf383735.cloudfree.jp/kick-ar/",{headers:{accept:"text/html"}},3*1024*1024);
+  const parsed=parseKickReferenceImages(html),rows=Object.create(null);
+  for(const [slug,images] of parsed){
+   const checked=images.map(v=>kickProxyImage(v)||validatedThumb(v,"kick")).filter(Boolean);
+   if(checked.length)rows[slug]=checked;
+  }
+  try{await caches.default.put(key,json(rows,200,"public, max-age=60"));}catch{}
+  return rows[id]||[];
+ }catch{return [];}
+}
 async function kickEndpointImages(id,known,suffix){
  try{
   const payload=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(id)+suffix,{headers:{accept:"application/json"}},1024*1024));
@@ -1008,7 +1044,7 @@ async function thumbnailResponse(raw,type,preview=false,verified=false){
   try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152){await reader.cancel();return null;}chunks.push(value);}}finally{reader.releaseLock();}
   if(!total)return null;
   const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":preview?"public, max-age=3":type==="kick"?"public, max-age=90":"public, max-age=30","x-content-type-options":"nosniff"}});
+  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":preview?"public, max-age=3":type==="kick"?"public, max-age=60":"public, max-age=30","x-content-type-options":"nosniff"}});
  }catch{return null;}
 }
 async function liveThumbnail(request){
@@ -1016,7 +1052,7 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r48")+"/"+type+"/"+id+(preview?"/preview":""));
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r50")+"/"+type+"/"+id+(preview?"/preview":""));
  const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r47/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
@@ -1043,6 +1079,7 @@ async function liveThumbnail(request){
  const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!!known.profileUrl));
  const initial=type==="nico"&&!isNicoUser?(known.programThumbnails||[]).filter(v=>!nicoBrandImage(v)):rankImages;
  let result=await tryImages(initial.slice(0,type==="kick"?2:3),type==="kick"&&known.thumbnailVerified===true);
+ if(!result&&type==="kick")result=await tryImages((await kickReferenceImages(url.origin,id)).slice(0,1),true);
  if(!result&&type==="kick"){
   for(const suffix of ["/livestream",""]){
    result=await tryImages((await kickEndpointImages(id,known,suffix)).slice(0,2),true);
@@ -1110,7 +1147,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r49",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r50",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
