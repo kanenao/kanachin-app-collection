@@ -460,7 +460,7 @@ function kickImage(value){
 function kickPage(payload){
  if(!Array.isArray(payload?.data))throw Error("Kick応答形式が不正");
  const entries=[];let excluded=0;
- for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(kickExplicitImage).find(Boolean)||"",thumbnailCandidates:kickFrameCandidates(r).map(kickExplicitImage).filter(Boolean),thumbnailVerified:true,startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
+ for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,kickOfficialId:officialGiftCount(r.broadcaster_user_id??r.broadcaster_user?.id??r.channel?.broadcaster_user_id),name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(kickExplicitImage).find(Boolean)||"",thumbnailCandidates:kickFrameCandidates(r).map(kickExplicitImage).filter(Boolean),thumbnailVerified:true,startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
  const cursor=payload.pagination?.next_cursor; if(cursor!=null&&(typeof cursor!=="string"||cursor.length>2048))throw Error("Kickページ情報が不正");
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
@@ -569,7 +569,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r79":RANK_CACHE_REVISION)));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r85":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -1024,11 +1024,12 @@ function recentKickSample(payload,roomId,startedAt,now,terminal=false){
 async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,windowMs=600000,onProgress=null){
  const messages=[],seen=new Set(),now=clock(),deadline=now+8500;
  // Kick reverse history cursor uses Unix microseconds. Keep its returned cursor opaque.
- let cursor=String(now*1000),terminal=false,last=Infinity,reported=0;
+ let cursor="",terminal=false,last=Infinity,reported=0;
  for(let page=0;page<(windowMs===30000?4:12);page++){
   if(page&&clock()>=deadline)break;
   let payload;
-  try{payload=await readPage(cursor);}catch{break;}
+  try{payload=await readPage(cursor);}catch(e){if(page===0)throw e;break;}
+  if(page===0&&(!Array.isArray(payload?.data?.messages)||!payload.data.messages.length)){cursor=String(now*1000);payload=await readPage(cursor);}
   const data=payload?.data,items=data?.messages;
   if(!Array.isArray(items)||items.length>1000)break;
   // Page ordering may vary. Validate all timestamps, reject repeated or non-progressing
@@ -1124,10 +1125,11 @@ async function enrichOfficialKickGiftEvents(rows,env){
   const now=Date.now();
   const query="SELECT broadcaster_id, kind, SUM(amount) AS total FROM kick_gift_events WHERE occurred_at >= ? AND occurred_at <= ? AND broadcaster_id IN ("+ids.map(()=>"?").join(",")+") GROUP BY broadcaster_id,kind";
   const result=await env.KICK_GIFT_DB.prepare(query).bind(now-86400000,now,...ids).all();
+  for(const row of rows)if(ids.includes(row.kickOfficialId)){row.kicksGiftStage="公式Webhook受信記録なし（24時間）";row.kicksGiftRecordCount=0;}
   for(const item of result.results||[]){
    const row=rows.find(r=>r.kickOfficialId===officialGiftCount(item.broadcaster_id)),total=officialGiftCount(item.total);
    if(!row||total==null)continue;
-   if(item.kind==="kicks.gifted"){row.kicksGift=total;row.kicksGiftStage="公式Webhook・直近24時間受信分";}
+   if(item.kind==="kicks.gifted"){row.kicksGift=total;row.kicksGiftRecordCount=null;row.kicksGiftStage="公式Webhook・直近24時間受信分";}
    if(item.kind==="channel.subscription.gifts")row.giftedSubscriptionsReceived=total;
   }
  }catch{for(const row of rows)row.kicksGiftStage="公式ギフト集計DB取得失敗";}
@@ -1184,7 +1186,7 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
     payload={data:response.data.map(x=>({slug:x.slug,broadcaster_user_id:officialGiftCount(x.broadcaster_user_id),stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(kickExplicitImage).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
     try{await caches.default.put(key,json(payload,200,"public, max-age=30"));}catch{}
    }
-   for(const row of rows){const channel=payload.data?.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===row.id);row.kickOfficialId=officialGiftCount(channel?.broadcaster_user_id);row.giftedSubscriptions=kickGiftedSubs(payload,row.id);row.giftedSubscriptionsStage=row.giftedSubscriptions!=null?"Kick公式API取得済み":channel?"公式APIに有効ギフト数なし":"公式APIに対象チャンネルなし";const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
+   for(const row of rows){const channel=payload.data?.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===row.id);row.kickOfficialId=officialGiftCount(channel?.broadcaster_user_id)??row.kickOfficialId;row.giftedSubscriptions=kickGiftedSubs(payload,row.id);row.giftedSubscriptionsStage=row.giftedSubscriptions!=null?"Kick公式API取得済み":channel?"公式APIに有効ギフト数なし":"公式APIに対象チャンネルなし";const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
   }catch(e){for(const row of rows)row.giftedSubscriptionsStage="公式API: "+diagnostic(e);}
  }
  emit();
@@ -1201,22 +1203,23 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
  const applyActive=(row,value)=>{for(const k of ["activeUsers","activeRecentUsers","activeRecentSeconds","activePartial","activeStage","activeWindowSeconds","activeSampledAt"])row[k]=value[k];};
  await Promise.all(rows.map(async row=>{
   if(!/^[a-z0-9_-]{1,40}$/.test(row.id))return;
-  const chatKey=new Request(origin+"/__cache/kick-chat-r77/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r77/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
-  let [chat,active]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey)]);
+  const chatKey=new Request(origin+"/__cache/kick-chat-r85/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r85/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
+  const attemptKey=new Request(origin+"/__cache/kick-attempt-r85/"+row.id);
+  let [chat,active,attempt]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey),cacheRead(attemptKey)]);
   if(!sameStream(row,chat))chat=null;if(!sameStream(row,active))active=null;
   const chatAge=ageOf(chat,"sampledAt"),activeAge=ageOf(active,"activeSampledAt");
-  if(chat&&chatAge<=45000)applyChat(row,chat);
-  if(active&&activeAge<=90000)applyActive(row,active);
-  targets.push({row,chatKey,activeKey,identityKey,chatAge,activeAge});
+  if(chat&&chatAge<=180000)applyChat(row,chat);
+  if(active&&activeAge<=240000)applyActive(row,active);
+  targets.push({row,chatKey,activeKey,identityKey,attemptKey,attempt:sameStream(row,attempt)?attempt.at:0,chatAge,activeAge});
  }));
  emit();
  const rotation=Math.floor(clock/10000)%Math.max(1,rows.length);
  const tie=t=>(rows.indexOf(t.row)-rotation+rows.length)%rows.length;
- const oldest=(key)=>(a,b)=>(a[key]===b[key]?tie(a)-tie(b):a[key]<b[key]?-1:1);
+ const oldest=(key)=>(a,b)=>(a.attempt||0)-(b.attempt||0)||(a[key]===b[key]?tie(a)-tie(b):a[key]<b[key]?-1:1);
  const long=targets.filter(t=>t.activeAge>=60000).sort(oldest("activeAge")).slice(0,2);
  const longIds=new Set(long.map(t=>t.row.id));
  const short=targets.filter(t=>!longIds.has(t.row.id)&&t.chatAge>=10000).sort(oldest("chatAge")).slice(0,Math.max(0,4-long.length));
- await Promise.all([...long.map(t=>({...t,full:true})),...short.map(t=>({...t,full:false}))].map(async({row,chatKey,activeKey,identityKey,full})=>{
+ await Promise.all([...long.map(t=>({...t,full:true})),...short.map(t=>({...t,full:false}))].map(async({row,chatKey,activeKey,identityKey,attemptKey,full})=>{
   try{
    let identity=await cacheRead(identityKey);
    if(!sameStream(row,identity)||!row.startedAt){
@@ -1229,17 +1232,17 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
     if(!sameStream(row,identity))throw Error("stream identity mismatch");
     await cachePut(identityKey,identity,120);
    }
-   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:30000,onProgress?partial=>{if(partial.chatPartial===false){applyChat(row,{...partial,startedAt:identity.startedAt});emit();}}:null);
-   if(!sample)throw Error("history unavailable");
+   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:30000,onProgress?partial=>{if(partial.chatPartial===false){applyChat(row,{...partial,startedAt:identity.startedAt});emit();}}:null);
+   if(!sample)throw Error("公開チャット履歴なし");
    const chat={startedAt:identity.startedAt,receivedComments:sample.receivedComments,chatCounts:sample.chatCounts,chatPartial:sample.chatPartial,chatStage:sample.chatStage,chatWindowSeconds:sample.chatWindowSeconds,sampledAt:sample.sampledAt};
    // A failed refresh cannot silently replace a prior verified count with zero.
-   if(!chat.chatPartial||row.receivedComments==null){applyChat(row,chat);await cachePut(chatKey,chat,45);}
+   if(!chat.chatPartial||row.receivedComments==null){applyChat(row,chat);await cachePut(chatKey,chat,180);}
    if(full||sample.activePartial===false){
     const active={startedAt:identity.startedAt,activeUsers:sample.activeUsers,activeRecentUsers:sample.activeRecentUsers,activeRecentSeconds:sample.activeRecentSeconds,activePartial:sample.activePartial,activeStage:sample.activeStage,activeWindowSeconds:sample.activeWindowSeconds,activeSampledAt:sample.sampledAt};
-    if(!active.activePartial||row.activeUsers==null){if(active.activeRecentUsers!=null||row.activeRecentUsers==null){applyActive(row,active);await cachePut(activeKey,active,90);}}
+    if(!active.activePartial||row.activeUsers==null){if(active.activeRecentUsers!=null||row.activeRecentUsers==null){applyActive(row,active);await cachePut(activeKey,active,240);}}
    }
-  }catch{if(row.receivedComments==null)row.chatStage="最新チャット取得待ち";}
-  emit();
+  }catch(e){if(row.receivedComments==null)row.chatStage="チャット取得: "+diagnostic(e);if(row.activeUsers==null)row.activeStage="履歴取得: "+diagnostic(e);}
+  await cachePut(attemptKey,{startedAt:row.startedAt,at:Date.now()},300);emit();
  }));
  const enriched=rows.some(row=>!row.thumbnail&&!row.thumbnailCandidates?.length)?mergeShobonThumbnails(rows,await shobonThumbnailSnapshot(origin)):rows;
  return {...data,entries:enriched};
@@ -1536,26 +1539,27 @@ function statisticsFields(result){
  for(const k of ["advertising","gift","active10m","active60s","activitySampleEnd","activeRecent","activityRecentSeconds","activityRecentEnd"])if(Number.isSafeInteger(result?.[k])&&result[k]>=0)out[k]=result[k];
  return out;
 }
-async function nicoSupplementalStatistics(request,emit=null){
+async function nicoSupplementalStatistics(request,emit=null,rankInput=null){
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
  const url=new URL(request.url),origin=url.origin;
- let rank=null;
- for(const cacheKey of rankingCacheKeys(origin,"nico")){try{const hit=await caches.default.match(cacheKey);if(hit){rank=await hit.json();if(Array.isArray(rank.entries)&&rank.entries.length)break;}}catch{}}
+ let rank=rankInput;
+ if(!Array.isArray(rank?.entries)||!rank.entries.length)for(const cacheKey of rankingCacheKeys(origin,"nico")){try{const hit=await caches.default.match(cacheKey);if(hit){rank=await hit.json();if(Array.isArray(rank.entries)&&rank.entries.length)break;}}catch{}}
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r78/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r85/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
-  if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
-  const fields=statisticsFields(row);
-  if(fields.advertising!=null&&fields.gift!=null&&fields.active10m!=null){results.push({id:row.id,...fields,stage:"公開統計取得済み",checkedAt:Date.now()});continue;}
-  pending.push({row,key});
+  const fields={...statisticsFields(saved),...statisticsFields(row)};
+  if(saved){results.push({...saved,...fields});if(Date.now()-saved.checkedAt<20000)continue;}
+  if(!saved&&fields.advertising!=null&&fields.gift!=null&&fields.active10m!=null){results.push({id:row.id,...fields,stage:"公開統計取得済み",checkedAt:Date.now()});continue;}
+  pending.push({row,key,saved,fields});
  }
  if(emit&&results.length)emit({status:"ok",entries:[...results]});
  const rotation=Math.floor(Date.now()/10000)%10;
- pending.sort((a,b)=>((rows.indexOf(a.row)-rotation+10)%10)-((rows.indexOf(b.row)-rotation+10)%10));
- await Promise.all(pending.slice(0,1).map(async({row,key})=>{
-  const result={id:row.id,...statisticsFields(row),stage:"番組情報取得失敗",checkedAt:Date.now()};
+ pending.sort((a,b)=>(a.saved?.checkedAt||0)-(b.saved?.checkedAt||0)||((rows.indexOf(a.row)-rotation+10)%10)-((rows.indexOf(b.row)-rotation+10)%10));
+ await Promise.all(pending.slice(0,1).map(async({row,key,fields})=>{
+  const result={id:row.id,...fields,stage:"番組情報取得失敗",checkedAt:Date.now()};
+  if(!Number.isFinite(result.activitySampleEnd)||Date.now()-result.activitySampleEnd*1000>180000){delete result.active10m;delete result.active60s;delete result.activitySampleEnd;}
   try{
    const page=await fetchBounded("https://live.nicovideo.jp/watch/"+row.id,{headers:{accept:"text/html"}},6*1024*1024);
    const detail=publicNicoDetail(page,row.id);
@@ -1578,17 +1582,17 @@ async function nicoSupplementalStatistics(request,emit=null){
   else if(result.advertising!=null&&result.gift!=null)result.stage="広告・ギフト取得済み／"+result.stage;
   result.checkedAt=Date.now();results.push(result);
   if(emit)emit({status:"ok",entries:[result]});
-  try{await caches.default.put(key,json(result,200,"public, max-age="+(result.active10m!=null&&result.advertising!=null&&result.gift!=null?60:15)));}catch{}
+  try{await caches.default.put(key,json(result,200,"public, max-age="+(300)));}catch{}
  }));
  return json({status:"ok",entries:results,pending:Math.max(0,pending.length-1)},200,"no-store");
 }
 
-function nicoStatisticsStream(request){
+function nicoStatisticsStream(request,rankInput=null){
  const encoder=new TextEncoder();let closed=false;
  const body=new ReadableStream({
   start(controller){
    const emit=value=>{if(!closed)controller.enqueue(encoder.encode(JSON.stringify(value)+"\n"));};
-   (async()=>{try{const result=await nicoSupplementalStatistics(request,emit);emit({...await result.json(),done:true});}
+   (async()=>{try{const result=await nicoSupplementalStatistics(request,emit,rankInput);emit({...await result.json(),done:true});}
    catch{try{emit({status:"error",message:"追加統計通信失敗",done:true});}catch{}}
    finally{if(!closed){closed=true;controller.close();}}})();
   },
@@ -1671,7 +1675,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r84</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r85</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1725,7 +1729,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r84"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r85"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1736,7 +1740,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r84",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r85",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(url.pathname==="/api/rankings-live"){
   if(request.method!=="GET"||request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return json({status:"error",message:"WebSocket接続のみ対応"},426);
@@ -1791,7 +1795,7 @@ export class RankingFeed extends WorkerEntrypoint{
   const target=new Request(RANKING_ORIGIN+path);
   if(path==="/kick")return kickRankingStream(new Request(RANKING_ORIGIN+"/api/rankings/kick?stream=1"),this.env);
   if(path==="/nico")return rankingResponse(new Request(RANKING_ORIGIN+"/api/rankings/nico"),this.env,"nico");
-  if(path==="/nico-stats")return nicoStatisticsStream(new Request(RANKING_ORIGIN+"/api/nico-statistics?stream=1"));
+  if(path==="/nico-stats"){const input=request.method==="POST"?await request.json():null;return nicoStatisticsStream(new Request(RANKING_ORIGIN+"/api/nico-statistics?stream=1"),input);}
   return json({status:"error"},404);
  }
 }
@@ -1875,7 +1879,7 @@ export class RankingLiveHub extends DurableObject{
     await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));
     const ids=new Set((this.latest.get("nico")?.entries||[]).map(r=>r.id));
     for(const id of this.stats.keys())if(!ids.has(id))this.stats.delete(id);
-    await liveReadFrames(await feed.fetch("https://internal/nico-stats"),frame=>{
+    await liveReadFrames(await feed.fetch(new Request("https://internal/nico-stats",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({entries:this.latest.get("nico")?.entries||[]})})),frame=>{
      if(frame.status!=="ok"||!Array.isArray(frame.entries))return;
      const rows=frame.entries.filter(row=>ids.has(row.id)&&Number.isFinite(row.checkedAt));
      for(const row of rows){const old=this.stats.get(row.id);if(!old||row.checkedAt>=old.checkedAt)this.stats.set(row.id,{...old,...row});}
