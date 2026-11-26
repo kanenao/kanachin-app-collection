@@ -56,7 +56,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位推移は直近10分の取得履歴を保存・復元します。新規ランクインは60秒間NEW表示します（取得範囲内の参考順位）。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r48 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r49 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -217,7 +217,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.26-r48";
+const rankingRevision="2026.11.26-r49";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -322,30 +322,53 @@ window.addEventListener("pagehide",()=>{if(activeNicoPreview)nicoPreviewStop(act
 
 const kickThumbStates=new Map();
 let activeKickPlayer=null;
+let kickAutoFrame=0;
+function selectKickAutoplay(states){
+ return states.find(s=>s.visible&&s.needsPlayer&&!s.autoSuppressed&&!s.loaded)||null;
+}
+function kickThumbVisible(state){
+ if(!state.box.isConnected||document.hidden)return false;
+ const rect=state.box.getBoundingClientRect();
+ return rect.width>0&&rect.height>0&&rect.bottom>0&&rect.top<window.innerHeight&&rect.right>0&&rect.left<window.innerWidth;
+}
+function syncKickAutoplay(){
+ kickAutoFrame=0;
+ if(document.hidden)return;
+ if(activeKickPlayer&&!kickThumbVisible(activeKickPlayer))stopKickPlayer(activeKickPlayer);
+ if(activeKickPlayer)return;
+ const list=document.querySelector('[data-platform="kick"] .rank-list');
+ const states=Array.from(list?.children||[],li=>kickThumbStates.get(li.dataset.kickId)).filter(Boolean);
+ const next=selectKickAutoplay(states.map(s=>({id:s.id,visible:kickThumbVisible(s),needsPlayer:s.needsPlayer,autoSuppressed:s.autoSuppressed,loaded:s.loaded})));
+ if(next)startKickPlayer(kickThumbStates.get(next.id),true);
+}
+function queueKickAutoplay(){if(!kickAutoFrame)kickAutoFrame=requestAnimationFrame(syncKickAutoplay);}
+
 function stopKickPlayer(state){
  if(!state)return;
- if(state.player){state.player.remove();state.player=null;}
+ if(state.player){state.player.remove();state.player=null;}state.autoPlaying=false;
  if(activeKickPlayer===state)activeKickPlayer=null;
  state.close.hidden=true;state.img.hidden=!state.loaded;state.fallback.hidden=state.loaded;state.message.hidden=state.loaded;
 }
-function startKickPlayer(state){
+function startKickPlayer(state,automatic=false){
  if(!state||!kickThumbStates.has(state.id)||!(/^[a-z0-9_-]{1,40}$/.test(state.id)))return;
+ if(state.player)return;
  if(activeKickPlayer)stopKickPlayer(activeKickPlayer);
  const frame=element("iframe","kick-preview-player");
  frame.title="Kick配信プレビュー "+state.id;frame.allow="autoplay; fullscreen";frame.referrerPolicy="strict-origin-when-cross-origin";
  frame.src="https://player.kick.com/"+encodeURIComponent(state.id)+"?autoplay=true&muted=true&allowfullscreen=false";
- state.player=frame;activeKickPlayer=state;state.img.hidden=true;state.fallback.hidden=true;state.message.hidden=true;state.close.hidden=false;
+ state.player=frame;state.autoPlaying=automatic;activeKickPlayer=state;state.img.hidden=true;state.fallback.hidden=true;state.message.hidden=true;state.close.hidden=false;
  state.box.insertBefore(frame,state.close);
 }
 function kickThumbPrune(ids){
- for(const [id,state] of kickThumbStates){if(!ids.has(id)){stopKickPlayer(state);state.img.removeAttribute("src");kickThumbStates.delete(id);}}
+ for(const [id,state] of kickThumbStates){if(!ids.has(id)){stopKickPlayer(state);clearTimeout(state.autoTimer);state.probe=null;state.img.removeAttribute("src");kickThumbStates.delete(id);}}
 }
 function kickThumbLoad(state,urls){
- state.urls=urls;state.index=0;state.loading=true;
+ state.urls=urls;state.index=0;state.loading=true;clearTimeout(state.autoTimer);
+ state.autoTimer=setTimeout(()=>{if(kickThumbStates.get(state.id)===state&&!state.loaded){state.needsPlayer=true;state.fallback.hidden=!!state.player;state.message.textContent="映像取得中";queueKickAutoplay();}},8000);
  // Keep a good image visible while the next image is fetched.
  const probe=element("img");state.probe=probe;probe.referrerPolicy="no-referrer";
- function next(){if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.index++;if(state.index<urls.length){probe.src=urls[state.index];return;}state.loading=false;state.probe=null;if(!state.loaded&&!state.player){state.message.textContent="映像サムネ未取得";state.message.hidden=false;state.fallback.hidden=false;}}
- probe.addEventListener("load",()=>{if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.loading=false;state.probe=null;state.loaded=true;state.img.src=probe.src;if(!state.player){state.img.hidden=false;state.message.hidden=true;state.fallback.hidden=true;}});
+ function next(){if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.index++;if(state.index<urls.length){probe.src=urls[state.index];return;}state.loading=false;state.probe=null;clearTimeout(state.autoTimer);if(!state.loaded){state.needsPlayer=true;if(!state.player){state.message.textContent="映像サムネ未取得";state.message.hidden=false;state.fallback.hidden=false;}queueKickAutoplay();}}
+ probe.addEventListener("load",()=>{if(state.probe!==probe||!kickThumbStates.has(state.id))return;state.loading=false;state.probe=null;clearTimeout(state.autoTimer);state.loaded=true;state.needsPlayer=false;state.img.src=probe.src;if(state.autoPlaying)stopKickPlayer(state);queueKickAutoplay();if(!state.player){state.img.hidden=false;state.message.hidden=true;state.fallback.hidden=true;}});
  probe.addEventListener("error",next);
  probe.src=urls[0];
 }
@@ -354,19 +377,20 @@ function kickThumbnail(row){
  if(!state){
   const box=element("div","rank-thumbbox kick-thumb"),message=element("span","kick-thumb-message","画像取得中"),img=element("img"),fallback=element("button","kick-player-open","▶ 配信を見る"),close=element("button","kick-player-close","×");
   img.alt="";img.hidden=true;img.referrerPolicy="no-referrer";fallback.type="button";fallback.hidden=true;close.type="button";close.hidden=true;close.setAttribute("aria-label","配信プレビューを閉じる");
-  box.append(message,img,fallback,close);state={id:row.id,box,message,img,fallback,close,loaded:false,loading:false,player:null,probe:null,slot:-1,startedAt:row.startedAt||""};kickThumbStates.set(row.id,state);
-  fallback.addEventListener("click",()=>startKickPlayer(state));close.addEventListener("click",()=>stopKickPlayer(state));
+  box.append(message,img,fallback,close);state={id:row.id,box,message,img,fallback,close,loaded:false,loading:false,player:null,probe:null,slot:-1,startedAt:row.startedAt||"",needsPlayer:false,autoSuppressed:false,autoPlaying:false,autoTimer:null};kickThumbStates.set(row.id,state);
+  fallback.addEventListener("click",()=>{state.autoSuppressed=false;startKickPlayer(state);});close.addEventListener("click",()=>{state.autoSuppressed=true;stopKickPlayer(state);queueKickAutoplay();});
  }
- if(row.startedAt&&state.startedAt&&state.startedAt!==row.startedAt){stopKickPlayer(state);state.probe=null;state.loaded=false;state.loading=false;state.img.hidden=true;state.img.removeAttribute("src");state.message.textContent="画像取得中";state.message.hidden=false;state.fallback.hidden=true;state.slot=-1;}
+ if(row.startedAt&&state.startedAt&&state.startedAt!==row.startedAt){stopKickPlayer(state);clearTimeout(state.autoTimer);state.needsPlayer=false;state.autoSuppressed=false;state.probe=null;state.loaded=false;state.loading=false;state.img.hidden=true;state.img.removeAttribute("src");state.message.textContent="画像取得中";state.message.hidden=false;state.fallback.hidden=true;state.slot=-1;}
  if(row.startedAt)state.startedAt=row.startedAt;
  const slot=Math.floor(Date.now()/(state.loaded?90000:30000));
  const direct=[...new Set([row.thumbnail,...(Array.isArray(row.thumbnailCandidates)?row.thumbnailCandidates:[])].map(v=>imageUrl(v,"kick")||(row.thumbnailVerified===true?kickExplicitImage(v):"")).filter(Boolean))].slice(0,4);
  if(!state.loading&&state.slot!==slot){state.slot=slot;kickThumbLoad(state,[...direct,"/api/live-thumbnail?service=kick&id="+encodeURIComponent(row.id)+"&slot="+Math.floor(Date.now()/30000)]);}
  return state.box;
 }
-document.addEventListener("visibilitychange",()=>{if(document.hidden&&activeKickPlayer)stopKickPlayer(activeKickPlayer);});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&activeKickPlayer)stopKickPlayer(activeKickPlayer);else if(!document.hidden)queueKickAutoplay();});
+window.addEventListener("scroll",queueKickAutoplay,{passive:true});window.addEventListener("resize",queueKickAutoplay);
 window.addEventListener("pagehide",()=>{if(activeKickPlayer)stopKickPlayer(activeKickPlayer);});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"&&activeKickPlayer)stopKickPlayer(activeKickPlayer);});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&activeKickPlayer){activeKickPlayer.autoSuppressed=true;stopKickPlayer(activeKickPlayer);queueKickAutoplay();}});
 function thumbnail(row,type){return type==="nico"?nicoThumbnail(row):kickThumbnail(row);}
 function metric(list,label,value,unit="",delta=null){
  const wrap=element("div"),dt=element("dt","",label),dd=element("dd",numeric(value)?"":"rank-unknown",numeric(value)?format(value)+unit:"未取得");
@@ -411,7 +435,7 @@ function renderRanking(panel,data,stale=false){
  status.hidden=!stale&&data.status==="ok"&&data.entries.length>0;
  status.textContent=stale?"最新取得に失敗・前回取得分":data.status==="ok"?"対象番組なし":data.message||"取得できません";
  if(data.status!=="ok"){if(type==="nico")nicoThumbPrune(new Set());else kickThumbPrune(new Set());list.replaceChildren();return;}
- const items=[];
+ const items=[],existingKick=new Map(type==="kick"?Array.from(list.children,li=>[li.dataset.kickId,li]):[]);
  for(const [i,row] of data.entries.slice(0,10).entries()){
   if(!(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(row.id))continue;
   const li=element("li"),rank=element("strong","rank-position",String(i+1)+"位"),body=element("div","rank-content"),top=element("div","rank-top"),heading=element("div"),link=element("a","rank-title",row.title||row.name||"タイトルなし");
@@ -420,15 +444,18 @@ function renderRanking(panel,data,stale=false){
   else if(!stale&&Number.isSafeInteger(row.rankChange)){const d=row.rankChange;rank.append(element("small","rank-move "+(d>0?"up":d<0?"down":"keep"),d>0?"▲ UP "+d:d<0?"▼ DOWN "+Math.abs(d):"→ KEEP"));rank.append(element("small","rank-prior","（前回"+row.previousRank+"位）"));}else rank.append(element("small","rank-prior","比較待ち"));rank.append(makeRankGraph(type,row));
   link.href=(type==="nico"?"https://live.nicovideo.jp/watch/":"https://kick.com/")+encodeURIComponent(row.id);
   heading.append(link);if(row.name){if(type==="nico"){const profile=element("a","rank-channel",row.name);profile.href=typeof row.profileUrl==="string"&&/^https:\/\/www\.nicovideo\.jp\/user\/[1-9]\d{0,14}$/.test(row.profileUrl)?row.profileUrl:"/api/live-profile?id="+encodeURIComponent(row.id);profile.title="配信者のユーザーページを開く";profile.target="_blank";profile.rel="noopener noreferrer";heading.append(profile);}else heading.append(element("div","rank-channel",row.name));}
-  top.append(thumbnail(row,type),heading);const metrics=element("dl","rank-metrics");
+  const thumb=thumbnail(row,type),existing=type==="kick"?existingKick.get(row.id):null;
+  if(existing&&existing.querySelector(".rank-thumbbox")===thumb){top.append(heading);}else{top.append(thumb,heading);}
+  const metrics=element("dl","rank-metrics");
   if(type==="nico"){
    metric(metrics,"勢い",row.momentum,"pt");metric(metrics,"来場者",row.visitors,"人",stale?null:row.visitorChange);metric(metrics,"コメント",row.comments,"件",stale?null:row.commentChange);
    metric(metrics,"広告（累計）",row.advertising,"pt");metric(metrics,"ギフト（累計）",row.gift,"pt");metric(metrics,"アクティブ（10分）",row.active10m,"人");if(numeric(row.active10m)&&Number.isFinite(row.activitySampleEnd)){const end=Number(row.activitySampleEnd)*1000;metrics.lastElementChild.title="集計終了時刻 "+new Date(end).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.active10m==null&&numeric(row.active60s))metric(metrics,"アクティブ（1分参考）",row.active60s,"人");if(row.advertising==null||row.gift==null||row.active10m==null){const detail=element("small","nico-stat-note",row.statisticsStage||"追加統計取得待ち");body.append(detail);}
   }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);metric(metrics,"受信コメント（取得分）",row.receivedComments,"件");metric(metrics,"アクティブ（取得分）",row.activeUsers,"人");metric(metrics,"KICKsギフト",row.kicksGift," KICKs");metric(metrics,"ギフトサブスク（有効数）",row.giftedSubscriptions,"件");}
-  timing(metrics,row);body.append(top,metrics);li.append(rank,body);items.push(li);
+  timing(metrics,row);body.append(top,metrics);li.append(rank,body);
+  if(type==="kick"){li.dataset.kickId=row.id;if(existing&&existing.querySelector(".rank-thumbbox")===thumb){existing.className=li.className;existing.querySelector(".rank-position").replaceWith(rank);existing.querySelector(".rank-top").lastElementChild.replaceWith(heading);existing.querySelector(".rank-metrics").replaceWith(metrics);items.push(existing);}else items.push(li);}else items.push(li);
  }
- list.replaceChildren(...items);
- if(type==="nico")nicoThumbPrune(new Set(data.entries.slice(0,10).map(row=>row.id)));else kickThumbPrune(new Set(data.entries.slice(0,10).map(row=>row.id)));
+ if(type==="nico"){list.replaceChildren(...items);nicoThumbPrune(new Set(data.entries.slice(0,10).map(row=>row.id)));}
+ else{const keep=new Set(items);kickThumbPrune(new Set(items.map(li=>li.dataset.kickId)));for(const child of Array.from(list.children))if(!keep.has(child))child.remove();for(let i=0;i<items.length;i++){const node=items[i],at=list.children[i]||null;if(node===at)continue;if(node.parentNode===list&&typeof list.moveBefore==="function")list.moveBefore(node,at);else list.insertBefore(node,at);}queueKickAutoplay();}
 }
 async function checkRankingHealth(){const node=document.querySelector("#rank-health");try{const res=await fetch("/api/health",{cache:"no-store",signal:AbortSignal.timeout(10000)});if(!res.ok)throw Error("HTTP "+res.status);const d=await res.json();node.hidden=d.status==="ok"&&d.revision===rankingRevision;node.textContent=node.hidden?"":"公開版が旧版です。";}catch{node.hidden=false;node.textContent="ランキングAPIに接続できません。";}}
 async function loadRanking(force=false){
