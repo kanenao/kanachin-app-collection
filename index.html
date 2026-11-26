@@ -112,9 +112,9 @@ function numberLabel(v){return Number.isSafeInteger(v)&&v>=0?v.toLocaleString("j
 function showRanking(panel,data,stale=false){
  const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status");list.replaceChildren();
  if(data.status!=="ok"){status.textContent=data.message||"取得できません";return;}
- status.textContent=(stale?"前回取得分 ／ ":"")+data.metric+" ／ "+(data.complete?"取得完了":"取得範囲内・参考順位")+" ／ "+publishedLabel(data.fetchedAt);
+ status.textContent=(stale?"前回取得分 ／ ":"")+data.source+" ／ "+data.metric+" ／ "+(data.complete?"取得完了":"取得範囲内・参考順位")+" ／ "+publishedLabel(data.fetchedAt);
  for(const [index,r] of data.entries.slice(0,20).entries()){const li=document.createElement("li"),rank=document.createElement("strong"),body=document.createElement("div"),link=document.createElement("a"),meta=document.createElement("small");rank.textContent=String(index+1);link.href=panel.dataset.platform==="nico"?"https://live.nicovideo.jp/watch/"+encodeURIComponent(r.id):"https://kick.com/"+encodeURIComponent(r.id);link.textContent=r.title||r.name||"タイトルなし";meta.textContent=(r.name?r.name+" ／ ":"")+(panel.dataset.platform==="nico"?"来場者 "+numberLabel(r.visitors)+" ・ コメント "+numberLabel(r.comments):"同時視聴者 "+numberLabel(r.viewers));body.append(link,meta);li.append(rank,body);list.append(li);}
- if(!data.entries.length)status.textContent+=" ／ 対象番組なし";
+ if(!data.entries.length)status.textContent+=" ／ 対象番組なし";else status.textContent+=" ／ "+Math.min(20,data.entries.length)+"件表示";
 }
 async function loadRanking(){if(rankingBusy||Date.now()-rankingLast<55000)return;rankingBusy=true;rankingLast=Date.now();const button=document.querySelector("#rank-refresh");button.disabled=true;
  try{await Promise.all(rankPanels.map(async panel=>{const type=panel.dataset.platform;try{const response=await fetch("/api/rankings/"+type,{signal:AbortSignal.timeout(30000)});const data=await response.json();if(data.status==="unconfigured"){rankPrevious.delete(type);showRanking(panel,data);return;}if(!response.ok||data.status!=="ok"||!Array.isArray(data.entries))throw Error("invalid response");rankPrevious.set(type,data);showRanking(panel,data);}catch{const previous=rankPrevious.get(type);showRanking(panel,previous||{status:"error",message:"ランキングを取得できません。公式ページをご確認ください。"},!!previous);}}));}finally{rankingBusy=false;button.disabled=false;}}
