@@ -183,15 +183,31 @@ function kickPage(payload){
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
 function rankKick(rows){const unique=new Map();for(const row of rows){if(!unique.has(row.id)||row.viewers>unique.get(row.id).viewers)unique.set(row.id,row);}return [...unique.values()].sort((a,b)=>b.viewers-a.viewers||a.id.localeCompare(b.id)).slice(0,100);}
-let token=null,tokenFlight=null;
+let token=null;
 async function fetchBounded(url,options={},max=MAX_BYTES){
- const response=await fetch(url,{...options,redirect:"error",signal:AbortSignal.timeout(5000)});
+ const signal=AbortSignal.timeout(9000);
+ let target=new URL(url),response;
+ for(let i=0;i<3;i++){
+  response=await fetch(target,{...options,redirect:"manual",signal});
+  if(![301,302,303,307,308].includes(response.status))break;
+  const location=response.headers.get("location");if(!location)throw Error("HTTP "+response.status);
+  const next=new URL(location,target);
+  const publicHosts=["www.chikuwachan.com","chikuwachan.com","nico-ran.stream","www.nicoran.stream","live.nicovideo.jp"];
+  if(options.method==="POST"||options.headers?.authorization||next.protocol!=="https:"||next.username||next.password||next.port||!publicHosts.includes(next.hostname)||!publicHosts.includes(target.hostname))throw Error("HTTP "+response.status);
+  if(response.body)await response.body.cancel();target=next;
+ }
+ if([301,302,303,307,308].includes(response.status))throw Error("HTTP "+response.status);
  if(!response.ok)throw Error("HTTP "+response.status);
  if(Number(response.headers.get("content-length")||0)>max)throw Error("取得上限超過");
  const reader=response.body.getReader(),decoder=new TextDecoder();let total=0,out="";
  try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>max){await reader.cancel();throw Error("取得上限超過");}out+=decoder.decode(value,{stream:true});}out+=decoder.decode();return out;}finally{reader.releaseLock();}
 }
-async function kickToken(env){if(token&&token.expires>Date.now()+60000)return token.value;if(tokenFlight)return tokenFlight;tokenFlight=(async()=>{const data=JSON.parse(await fetchBounded("https://id.kick.com/oauth/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"client_credentials",client_id:env.KICK_CLIENT_ID,client_secret:env.KICK_CLIENT_SECRET})},65536));if(typeof data.access_token!=="string"||!Number.isFinite(data.expires_in))throw Error("Kick認証に失敗");token={value:data.access_token,expires:Date.now()+data.expires_in*1000};return token.value;})();try{return await tokenFlight;}finally{tokenFlight=null;}}
+async function kickToken(env){
+ if(token&&token.expires>Date.now()+60000)return token.value;
+ const data=JSON.parse(await fetchBounded("https://id.kick.com/oauth/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"client_credentials",client_id:env.KICK_CLIENT_ID,client_secret:env.KICK_CLIENT_SECRET})},65536));
+ if(typeof data.access_token!=="string"||!Number.isFinite(data.expires_in))throw Error("Kick認証に失敗");
+ token={value:data.access_token,expires:Date.now()+data.expires_in*1000};return token.value;
+}
 function parseKickPublic(html){
  const sanitized=String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
  const anchors=[...sanitized.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)].filter(a=>/^https:\/\/(?:www\.)?kick\.com\/[a-z0-9_-]{1,40}\/?(?:[?#][^\s]*)?$/i.test(a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||""));
@@ -218,8 +234,11 @@ async function publicKickRanking(reason){
  try{const rows=parseKickPublic(await fetchBounded(url,{headers:{accept:"text/html"}}));if(rows.length)return {source:"ちくわちゃん・Kick",sourceUrl:url,complete:false,metric:"参考掲載順・日本語判定未確認",fetchedAt:new Date().toISOString(),entries:rows,notice:reason};return {status:"unconfigured",message:reason+"／公開ページの番組リンクも取得できません。",entries:[]};}catch(e){return {status:"unconfigured",message:reason+"／予備取得先: "+diagnostic(e),entries:[]};}
 }
 async function nicoRanking(){
- const sources=[{name:"ちくわちゃん",url:"https://www.chikuwachan.com/live/NCU/"},{name:"ちくわちゃん",url:"https://chikuwachan.com/live/NCU/"},{name:"nico-ran.stream",url:"https://nico-ran.stream/"},{name:"ニコ生公式ランキング",url:"https://live.nicovideo.jp/ranking"}];const diagnostics=[];
- for(const source of sources){try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);if(rows.length)return {source:source.name,sourceUrl:source.url,complete:false,metric:"掲載順（順位は参考）",fetchedAt:new Date().toISOString(),entries:rows.slice(0,100).map(r=>({id:r.liveId,name:r.name,title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,visitors:r.visitors,comments:r.comments,startedAt:r.startedAt,thumbnail:r.thumbnailUrl}))};diagnostics.push(source.name+": 番組データなし");}catch(e){diagnostics.push(source.name+": "+diagnostic(e));}}
+ const sources=[{name:"ちくわちゃん",url:"https://www.chikuwachan.com/live/NCU/"},{name:"nico-ran.stream",url:"https://nico-ran.stream/"},{name:"ニコ生公式ランキング",url:"https://live.nicovideo.jp/ranking"}];
+ const results=await Promise.all(sources.map(async source=>{try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);return {source,rows,reason:rows.length?"":"番組データなし"};}catch(e){return {source,rows:[],reason:diagnostic(e)};}}));
+ const best=results.find(r=>r.rows.length);
+ if(best)return {source:best.source.name,sourceUrl:best.source.url,complete:false,metric:"掲載順（順位は参考）",fetchedAt:new Date().toISOString(),entries:best.rows.slice(0,100).map(r=>({id:r.liveId,name:r.name,title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,visitors:r.visitors,comments:r.comments,startedAt:r.startedAt,thumbnail:r.thumbnailUrl}))};
+ const diagnostics=results.map(r=>r.source.name+": "+r.reason);
  return {status:"error",message:"ニコ生取得失敗（"+diagnostics.join("／")+"）",entries:[]};
 }
 async function kickRanking(env){
@@ -230,14 +249,18 @@ async function kickRanking(env){
  return {source:"Kick公式API",sourceUrl:"https://kick.com/",complete:complete&&excluded===0,metric:"日本語配信・同時視聴者数順",fetchedAt:new Date().toISOString(),entries:rankKick(rows)};
 }
 function json(value,status=200,cache="no-store"){return new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":cache,"x-content-type-options":"nosniff"}});}
-const flights=new Map();
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r8",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
- if(!match)return env.ASSETS.fetch(request);
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r9",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname);
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r9");
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
- if(!flights.has(type)){const promise=(async()=>{try{const data=type==="nico"?await nicoRanking():await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));if(data.status==="unconfigured")return json(data);if(data.status==="error")return json(data,502);const response=json({status:"ok",...data},200,"public, max-age=60");try{await caches.default.put(key,response.clone());}catch{}return response;}catch{return json({status:"error",message:type==="nico"?"ニコ生データ取得に失敗しました。":"Kickデータ取得に失敗しました。",entries:[]},502);}})();flights.set(type,promise);promise.finally(()=>flights.delete(type));}
- return (await flights.get(type)).clone();
+ try{
+  const data=type==="nico"?await nicoRanking():await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
+  const ok=!data.status||data.status==="ok";
+  const response=json(ok?{status:"ok",...data}:data,data.status==="error"?502:200,ok?"public, max-age=60":"no-store");
+  if(ok){try{await caches.default.put(key,response.clone());}catch{}}
+  return response;
+ }catch(e){return json({status:"error",message:(type==="nico"?"ニコ生":"Kick")+"取得失敗: "+diagnostic(e),entries:[]},502);}
 }};
