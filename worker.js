@@ -291,6 +291,19 @@ async function kickToken(env){
  if(typeof data.access_token!=="string"||!Number.isFinite(data.expires_in))throw Error("Kick認証に失敗");
  token={value:data.access_token,expires:Date.now()+data.expires_in*1000};return token.value;
 }
+function kickDuration(value){
+ const text=String(value??"").replace(/\s+/g,"").trim();
+ const m=/^(?:(\d{1,3})日)?(?:(\d{1,4})時間)?(?:(\d{1,5})分)?$/.exec(text);
+ if(!m||!text||(!m[1]&&!m[2]&&!m[3]))return "";
+ const minutes=Number(m[1]||0)*1440+Number(m[2]||0)*60+Number(m[3]||0);
+ if(!Number.isSafeInteger(minutes)||minutes>525600)return "";
+ return (minutes>=1440?Math.floor(minutes/1440)+"日":"")+(minutes%1440>=60?Math.floor(minutes%1440/60)+"時間":"")+minutes%60+"分";
+}
+function mergeKickDurations(rows,details){
+ const byId=new Map();
+ for(const d of details){const id=String(d.id??"").toLowerCase();if(!/^[a-z0-9_-]{1,40}$/.test(id))continue;const duration=kickDuration(d.duration);if(duration){if(byId.has(id)&&byId.get(id)!==duration)byId.set(id,"");else if(!byId.has(id))byId.set(id,duration);}}
+ return rows.map(row=>{const duration=kickDuration(row.duration)||byId.get(row.id)||"";return {...row,duration};});
+}
 function parseKickPublic(html){
  const sanitized=String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
  const anchors=[...sanitized.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)].filter(a=>/^https:\/\/(?:www\.)?kick\.com\/[a-z0-9_-]{1,40}\/?(?:[?#][^\s]*)?$/i.test(a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||""));
@@ -305,18 +318,22 @@ function parseKickPublic(html){
   if(!imageIds.includes(id)||imageIds.some(x=>x!==id))continue;
   const metrics=plain(block),values=[...metrics.matchAll(/(?:^|\s)(\d{1,3}(?:,\d{3})+|\d{1,10})\s*viewers\b/gi)];
   const viewers=values.length===1?Number(values[0][1].replace(/,/g,"")):null;
-  const durations=[...metrics.matchAll(/(?:\d+日\s*)?(?:\d+時間\s*)?\d+分/g)];
+  const tailText=plain(tail);const durations=[...tailText.matchAll(/(?:^|\s)((?:\d+日\s*)?(?:\d+時間\s*)?\d+分|\d+日\s*\d+時間|\d+時間|\d+日)(?=\s|$)/g)].map(m=>kickDuration(m[1])).filter(Boolean);
   const title=plain(a[1].match(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/i)?.[2]||a[2]).slice(0,250);
-  seen.add(id);rows.push({id,name:id,title:title||id,viewers,duration:durations.length===1?durations[0][0]:""});
+  seen.add(id);rows.push({id,name:id,title:title||id,viewers,duration:durations.length===1?durations[0]:""});
  }
  return rows;
 }
 function diagnostic(error){const msg=String(error?.message||"");return /^HTTP \d{3}$/.test(msg)?msg:error?.name==="TimeoutError"||error?.name==="AbortError"?"タイムアウト":msg==="取得上限超過"?"応答サイズ上限":"通信・形式エラー";}
 async function publicKickRanking(reason){
- try{const url="https://ikioi-ranking.com/v/kick";const rows=parseArchiveRanking(await fetchBounded(url,{headers:{accept:"text/html"}}),"kick");if(rows.length)return {source:"勢いランキング・Kick",sourceUrl:url,complete:false,metric:"公開データ・参考同時視聴者数順",fetchedAt:new Date().toISOString(),entries:rankKick(rows),notice:reason};}catch{}
-
- const url="https://www.chikuwachan.com/live/KCK/";
- try{const rows=parseKickPublic(await fetchBounded(url,{headers:{accept:"text/html"}}));if(rows.length)return {source:"ちくわちゃん・Kick",sourceUrl:url,complete:false,metric:"参考掲載順・日本語判定未確認",fetchedAt:new Date().toISOString(),entries:rows.slice(0,10),notice:reason};return {status:"unconfigured",message:reason+"／公開ページの番組リンクも取得できません。",entries:[]};}catch(e){return {status:"unconfigured",message:reason+"／予備取得先: "+diagnostic(e),entries:[]};}
+ const primaryUrl="https://ikioi-ranking.com/v/kick",detailUrl="https://www.chikuwachan.com/live/KCK/";
+ const [primary,detail]=await Promise.all([
+  fetchBounded(primaryUrl,{headers:{accept:"text/html"}}).then(html=>parseArchiveRanking(html,"kick")).catch(()=>[]),
+  fetchBounded(detailUrl,{headers:{accept:"text/html"}}).then(parseKickPublic).catch(()=>[])
+ ]);
+ if(primary.length)return {source:"勢いランキング・Kick",sourceUrl:primaryUrl,complete:false,metric:"公開データ・参考同時視聴者数順",fetchedAt:new Date().toISOString(),entries:mergeKickDurations(rankKick(primary),detail),notice:reason};
+ if(detail.length)return {source:"ちくわちゃん・Kick",sourceUrl:detailUrl,complete:false,metric:"参考掲載順・日本語判定未確認",fetchedAt:new Date().toISOString(),entries:detail.slice(0,10),notice:reason};
+ return {status:"unconfigured",message:reason+"／公開ランキングからも取得できません。",entries:[]};
 }
 
 // Read only public, matching program data. Do not connect to watch/chat sockets.
@@ -461,11 +478,11 @@ async function kickRanking(env){
 function json(value,status=200,cache="no-store"){return new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":cache,"x-content-type-options":"nosniff"}});}
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r21",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r22",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r21"),backup=new Request(url.origin+url.pathname+"?last-good=r21");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r22"),backup=new Request(url.origin+url.pathname+"?last-good=r22");
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
