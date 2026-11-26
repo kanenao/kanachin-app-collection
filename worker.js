@@ -567,7 +567,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r77":RANK_CACHE_REVISION)));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r79":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -1019,10 +1019,10 @@ function recentKickSample(payload,roomId,startedAt,now,terminal=false){
  const full=active?.sec===600;
  return {receivedComments:chatWindowSeconds===null?null:chatCounts[chatWindowSeconds],chatCounts,activeUsers:full?active.senders.size:null,activeRecentUsers:active?.senders.size??null,activeRecentSeconds:active?.sec??null,chatPartial:chatWindowSeconds===null,activePartial:!full,chatStage:chatWindowSeconds===null?"短時間のチャット履歴を確認中":"直近"+chatWindowSeconds+"秒の履歴範囲確認済み",activeStage:full?"直近10分の履歴範囲確認済み":active?"直近"+active.sec+"秒の実測取得済み・10分集計中":"アクティブ履歴確認中",chatWindowSeconds,activeWindowSeconds:600,sampledAt:new Date(now).toISOString()};
 }
-async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,windowMs=600000){
+async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,windowMs=600000,onProgress=null){
  const messages=[],seen=new Set(),now=clock(),deadline=now+8500;
  // Kick reverse history cursor uses Unix microseconds. Keep its returned cursor opaque.
- let cursor=String(now*1000),terminal=false,last=Infinity;
+ let cursor=String(now*1000),terminal=false,last=Infinity,reported=0;
  for(let page=0;page<(windowMs===30000?4:12);page++){
   if(page&&clock()>=deadline)break;
   let payload;
@@ -1036,6 +1036,7 @@ async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,window
   const oldest=sorted.length?kickChatTime(sorted[sorted.length-1].created_at):Infinity;
   if(sorted.length&&oldest>=last)break;
   if(sorted.length){messages.push(...sorted);last=oldest;}
+  if(onProgress&&reported<30&&last<=now-5000){const sample=recentKickSample({data:{messages}},roomId,startedAt,now);if(sample?.chatWindowSeconds>reported){reported=sample.chatWindowSeconds;try{onProgress(sample);}catch{}}}
   if(sorted.length&&last<=Math.max(startedAt,now-windowMs))break;
   if(Object.prototype.hasOwnProperty.call(data,"cursor")&&data.cursor===null&&((items.length>0&&items.length<25)||(!items.length&&messages.length>0))){terminal=true;break;}
   const next=typeof data.cursor==="string"?data.cursor:typeof data.cursor==="number"&&Number.isSafeInteger(data.cursor)?String(data.cursor):"";
@@ -1159,9 +1160,10 @@ async function shobonThumbnailSnapshot(origin){
  }catch{}
  return rows;
 }
-async function enrichKickPublicMetrics(data,origin,env){
+async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
  if(!Array.isArray(data.entries)||!data.entries.length)return data;
  const rows=data.entries.slice(0,10);
+ const emit=()=>{try{onProgress?.({...data,status:"ok",entries:rows.map(row=>({...row}))});}catch{}};
  for(const row of rows){row.receivedComments=null;row.activeUsers=null;row.kicksGift=null;row.giftedSubscriptions=null;row.giftedSubscriptionsReceived=null;row.giftedSubscriptionsStage="公式API認証未設定";}
  // Official channel-level active gifted subscriptions are not gifts during this stream.
  // Batch top ten only; cache channel totals for two minutes.
@@ -1183,7 +1185,9 @@ async function enrichKickPublicMetrics(data,origin,env){
    for(const row of rows){const channel=payload.data?.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===row.id);row.kickOfficialId=officialGiftCount(channel?.broadcaster_user_id);row.giftedSubscriptions=kickGiftedSubs(payload,row.id);row.giftedSubscriptionsStage=row.giftedSubscriptions!=null?"Kick公式API取得済み":channel?"公式APIに有効ギフト数なし":"公式APIに対象チャンネルなし";const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
   }catch(e){for(const row of rows)row.giftedSubscriptionsStage="公式API: "+diagnostic(e);}
  }
+ emit();
  await enrichOfficialKickGiftEvents(rows,env);
+ emit();
  // Keep short chat and longer activity aggregates on separate freshness clocks.
  // Public cache contains counts and stream identity only, never message bodies or sender IDs.
  const targets=[],clock=Date.now();
@@ -1203,6 +1207,7 @@ async function enrichKickPublicMetrics(data,origin,env){
   if(active&&activeAge<=90000)applyActive(row,active);
   targets.push({row,chatKey,activeKey,identityKey,chatAge,activeAge});
  }));
+ emit();
  const rotation=Math.floor(clock/10000)%Math.max(1,rows.length);
  const tie=t=>(rows.indexOf(t.row)-rotation+rows.length)%rows.length;
  const oldest=(key)=>(a,b)=>(a[key]===b[key]?tie(a)-tie(b):a[key]<b[key]?-1:1);
@@ -1222,7 +1227,7 @@ async function enrichKickPublicMetrics(data,origin,env){
     if(!sameStream(row,identity))throw Error("stream identity mismatch");
     await cachePut(identityKey,identity,120);
    }
-   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:30000);
+   const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");url.searchParams.set("sort","desc");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:30000,onProgress?partial=>{if(partial.chatPartial===false){applyChat(row,{...partial,startedAt:identity.startedAt});emit();}}:null);
    if(!sample)throw Error("history unavailable");
    const chat={startedAt:identity.startedAt,receivedComments:sample.receivedComments,chatCounts:sample.chatCounts,chatPartial:sample.chatPartial,chatStage:sample.chatStage,chatWindowSeconds:sample.chatWindowSeconds,sampledAt:sample.sampledAt};
    // A failed refresh cannot silently replace a prior verified count with zero.
@@ -1232,6 +1237,7 @@ async function enrichKickPublicMetrics(data,origin,env){
     if(!active.activePartial||row.activeUsers==null){if(active.activeRecentUsers!=null||row.activeRecentUsers==null){applyActive(row,active);await cachePut(activeKey,active,90);}}
    }
   }catch{if(row.receivedComments==null)row.chatStage="最新チャット取得待ち";}
+  emit();
  }));
  const enriched=rows.some(row=>!row.thumbnail&&!row.thumbnailCandidates?.length)?mergeShobonThumbnails(rows,await shobonThumbnailSnapshot(origin)):rows;
  return {...data,entries:enriched};
@@ -1578,11 +1584,11 @@ async function nicoSupplementalStatistics(request,emit=null){
 function nicoStatisticsStream(request){
  const encoder=new TextEncoder();let closed=false;
  const body=new ReadableStream({
-  async start(controller){
+  start(controller){
    const emit=value=>{if(!closed)controller.enqueue(encoder.encode(JSON.stringify(value)+"\n"));};
-   try{const result=await nicoSupplementalStatistics(request,emit);emit({...await result.json(),done:true});}
+   (async()=>{try{const result=await nicoSupplementalStatistics(request,emit);emit({...await result.json(),done:true});}
    catch{try{emit({status:"error",message:"追加統計通信失敗",done:true});}catch{}}
-   finally{if(!closed){closed=true;controller.close();}}
+   finally{if(!closed){closed=true;controller.close();}}})();
   },
   cancel(){closed=true;}
  });
@@ -1663,7 +1669,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r78</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r79</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1720,20 +1726,39 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r78"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r79"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],[key,backup]=rankingCacheKeys(url.origin,type);
+ const type=match[1];
+ if(type==="kick"&&url.searchParams.get("stream")==="1")return kickRankingStream(request,env);
+ return rankingResponse(request,env,type);
+}};
+async function rankingResponse(request,env,type,emit=null){
+ const url=new URL(request.url),[key,backup]=rankingCacheKeys(url.origin,type);
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
   let data=type==="nico"?await nicoRanking(url.origin):await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
-  if(type==="kick"&&(!data.status||data.status==="ok"))data=await enrichKickPublicMetrics(data,url.origin,env);
+  if(type==="kick"&&(!data.status||data.status==="ok")){if(emit)emit({status:"ok",...data});data=await enrichKickPublicMetrics(data,url.origin,env,emit);}
   const ok=!data.status||data.status==="ok";
   if(!ok){const previous=await previousRanking();if(previous)return previous;}
   const response=json(ok?{status:"ok",...data}:data,data.status==="error"?502:200,ok?"public, max-age=10":"no-store");
   if(ok){try{await caches.default.put(key,response.clone());if(data.entries?.length)await caches.default.put(backup,json({status:"ok",...data},200,"public, max-age=300"));}catch{}}
   return response;
  }catch(e){const previous=await previousRanking();if(previous)return previous;return json({status:"error",message:(type==="nico"?"ニコ生":"Kick")+"取得失敗: "+diagnostic(e),entries:[]},502);}
-}};
+}
+function kickRankingStream(request,env){
+ const encoder=new TextEncoder();let closed=false;
+ const body=new ReadableStream({
+  start(controller){
+   const emit=value=>{if(!closed)controller.enqueue(encoder.encode(JSON.stringify(value)+"\n"));};
+   // Do not return the pending collection promise from start: allow early frames to be read.
+   (async()=>{try{const result=await rankingResponse(request,env,"kick",emit);emit({...await result.json(),done:true});}
+    catch{try{emit({status:"error",message:"Kickランキング通信失敗",done:true});}catch{}}
+    finally{if(!closed){closed=true;controller.close();}}})();
+  },
+  cancel(){closed=true;}
+ });
+ return new Response(body,{headers:{"content-type":"application/x-ndjson; charset=utf-8","cache-control":"no-store, no-transform","x-content-type-options":"nosniff"}});
+}
