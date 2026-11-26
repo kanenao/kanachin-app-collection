@@ -58,7 +58,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各取得元の上位10番組を独自総合スコアで再順位付け（全配信の順位ではありません）。10秒間隔で更新。未取得項目は全候補の採点から外し、暫定順位とします。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r75 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r76 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -211,11 +211,14 @@ function makeRankGraph(type,row){
 const overallWeights={nico:[["active10m",30],["momentum",20],["visitors",15],["comments",15],["advertising",10],["gift",10]],kick:[["viewers",25],["activeUsers",25],["receivedComments",20],["viewerRate",15],["kicksGift",5],["giftedSubscriptions",5],["giftedSubscriptionsReceived",5]]};
 function scoreOverall(entries,type,now){
  const spec=overallWeights[type],rows=entries.map((row,index)=>({...row,sourceRank:index+1}));
+ const chatFresh=row=>{const age=now-Date.parse(row.sampledAt);return row.chatPartial===false&&Number.isFinite(age)&&age>=0&&age<=45000;};
+ const commonChatSeconds=type==="kick"&&rows.length?[30,15,10].find(sec=>rows.every(row=>chatFresh(row)&&Number.isSafeInteger(row.chatCounts?.[sec])&&row.chatCounts[sec]>=0))??null:null;
  const value=(row,key)=>{
   if(type==="kick"&&["activeUsers","receivedComments"].includes(key)){
    const age=now-Date.parse(key==="activeUsers"?row.activeSampledAt:row.sampledAt);
    if(!Number.isFinite(age)||age<0||age>(key==="activeUsers"?90000:45000))return null;
-   if(key==="activeUsers"?(row.activePartial!==false||row.activeWindowSeconds!==600):(row.chatPartial!==false||row.chatWindowSeconds!==60))return null;
+   if(key==="activeUsers"){if(row.activePartial!==false||row.activeWindowSeconds!==600)return null;}
+   else return commonChatSeconds===null?null:row.chatCounts[commonChatSeconds];
   }
   if(type==="nico"&&key==="active10m"&&Number.isFinite(row.activitySampleEnd)&&(now-row.activitySampleEnd*1000>240000||row.activitySampleEnd*1000>now+30000))return null;
   const n=row[key];return typeof n==="number"&&Number.isFinite(n)&&(key==="viewerRate"||n>=0)?n:null;
@@ -229,10 +232,10 @@ function scoreOverall(entries,type,now){
   let points=0;
   for(const {key,w,min,max} of ranges){const n=scale(value(row,key),key),part=max>min?(n-min)/(max-min):0;points+=w*part;}
   row.overallScore=weight?Math.round(points/weight*1000)/10:null;
-  row.overallUsed=available.length;row.overallTotal=spec.length;
+  row.overallUsed=available.length;row.overallTotal=spec.length;row.overallChatSeconds=commonChatSeconds;
  }
  if(weight)rows.sort((a,b)=>b.overallScore-a.overallScore||a.sourceRank-b.sourceRank);
- return {entries:rows,used:available.length,total:spec.length,weight,keys:available.map(([key])=>key).join(",")};
+ return {entries:rows,used:available.length,total:spec.length,weight,keys:available.map(([key])=>key==="receivedComments"?"receivedComments"+commonChatSeconds+"s":key).join(",")};
 }
 function compareRanking(current,previous,type){
  const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:r.rank??i+1}]));
@@ -245,7 +248,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r75";
+const rankingRevision="2026.11.27-r76";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -419,7 +422,7 @@ async function refreshNicoStatistics(){
 function renderRanking(panel,data,stale=false){
  if(panel.dataset.platform==="nico"&&Array.isArray(data.entries)){const entries=data.entries.map(mergeNicoSupplement);data={...data,entries,coverage:data.coverage?{...data.coverage,advertising:entries.filter(x=>numeric(x.advertising)).length,gift:entries.filter(x=>numeric(x.gift)).length,active10m:entries.filter(x=>numeric(x.active10m)).length}:undefined};}
  const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status"),type=panel.dataset.platform;
- panel.querySelector(".rank-mode").textContent=(data.overallUsed!=null?(data.overallUsed===data.overallTotal?"総合勢いランキング":"暫定総合ランキング")+"（"+data.overallUsed+"/"+data.overallTotal+"項目）":data.metric||"総合スコア集計待ち")+(type==="kick"?" ／ チャット直近1分・10秒更新時に最大4番組ずつ優先取得 ／ アクティブ直近10分は別集計":"");
+ panel.querySelector(".rank-mode").textContent=(data.overallUsed!=null?(data.overallUsed===data.overallTotal?"総合勢いランキング":"暫定総合ランキング")+"（"+data.overallUsed+"/"+data.overallTotal+"項目）":data.metric||"総合スコア集計待ち")+(type==="kick"?" ／ チャット直近30秒優先（不足時15秒・10秒）・最大4番組ずつ取得 ／ アクティブ直近10分":"");
  if(type==="nico"&&data.coverage){const c=data.coverage;const mode=panel.querySelector(".rank-mode");mode.textContent+=" ／ 広告 "+c.advertising+"/"+c.total+"件・ギフト "+c.gift+"/"+c.total+"件・アクティブ "+c.active10m+"/"+c.total+"件";mode.title="nico-ran.stream: "+c.referenceStatus+"（番組一致 "+c.matched+"件）";}
  if(type==="nico"&&data.officialCoverage){const c=data.officialCoverage;const mode=panel.querySelector(".rank-mode");mode.title+=" ／ 公式ランキング: "+c.status+"（番組一致 "+c.matched+"件、広告 "+c.advertising+"件、ギフト "+c.gift+"件）";mode.textContent+=" ／ 公式照合 "+c.matched+"件";}
  status.hidden=!stale&&data.status==="ok"&&data.entries.length>0;
@@ -437,11 +440,11 @@ function renderRanking(panel,data,stale=false){
   const thumb=thumbnail(row,type),existing=type==="kick"?existingKick.get(row.id):null;
   if(existing&&existing.querySelector(".rank-thumbbox")===thumb){top.append(heading);}else{top.append(thumb,heading);}
   const metrics=element("dl","rank-metrics");
-  const overall=element("div","rank-overall");overall.append(element("dt","","総合勢いスコア"),element("dd","",typeof row.overallScore==="number"?row.overallScore.toFixed(1)+" / 100":"集計待ち"));overall.title="全候補で確認できた "+(row.overallUsed??0)+"/"+(row.overallTotal??0)+"項目で採点";metrics.append(overall);
+  const overall=element("div","rank-overall");overall.append(element("dt","","総合勢いスコア"),element("dd","",typeof row.overallScore==="number"?row.overallScore.toFixed(1)+" / 100":"集計待ち"));overall.title="全候補で確認できた "+(row.overallUsed??0)+"/"+(row.overallTotal??0)+"項目で採点"+(row.overallChatSeconds?"・チャット共通"+row.overallChatSeconds+"秒":"");metrics.append(overall);
   if(type==="nico"){
    metric(metrics,"勢い",row.momentum,"pt");metric(metrics,"来場者",row.visitors,"人",stale?null:row.visitorChange);metric(metrics,"コメント",row.comments,"件",stale?null:row.commentChange);
    metric(metrics,"広告（累計）",row.advertising,"pt");metric(metrics,"ギフト（累計）",row.gift,"pt");metric(metrics,"アクティブ（10分）",row.active10m,"人");if(numeric(row.active10m)&&Number.isFinite(row.activitySampleEnd)){const end=Number(row.activitySampleEnd)*1000;metrics.lastElementChild.title="集計終了時刻 "+new Date(end).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.active10m==null&&numeric(row.active60s))metric(metrics,"アクティブ（1分実測）",row.active60s,"人");else if(row.active10m==null&&numeric(row.activeRecent)&&Number.isSafeInteger(row.activityRecentSeconds)&&row.activityRecentSeconds>0&&row.activityRecentSeconds<=600){metric(metrics,"アクティブ（"+row.activityRecentSeconds+"秒実測）",row.activeRecent,"人");if(Number.isFinite(row.activityRecentEnd))metrics.lastElementChild.title="集計終了時刻 "+new Date(row.activityRecentEnd*1000).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.advertising==null||row.gift==null||row.active10m==null){const detail=element("small","nico-stat-note",row.statisticsStage||"追加統計取得待ち");body.append(detail);}
-  }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);const seconds=Number.isSafeInteger(row.chatWindowSeconds)&&row.chatWindowSeconds>0&&row.chatWindowSeconds<=60?row.chatWindowSeconds:60;const windowLabel=seconds===60?"直近1分":seconds+"秒";const age=Date.now()-Date.parse(row.sampledAt),verified=row.chatPartial===false&&Number.isFinite(age)&&age>=0&&age<=45000&&!stale;metric(metrics,"チャット（"+windowLabel+"）",verified?row.receivedComments:null,"件");metrics.lastElementChild.title=verified?"公開履歴集計・"+new Date(row.sampledAt).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"}):"直近の履歴範囲未確認";if(verified)metrics.lastElementChild.querySelector("dd").append(element("small","rank-sample-age","（"+Math.floor(age/1000)+"秒前）"));const activeAge=Date.now()-Date.parse(row.activeSampledAt),activeVerified=row.activePartial===false&&Number.isFinite(activeAge)&&activeAge>=0&&activeAge<=90000&&!stale;const activeSeconds=Number.isSafeInteger(row.activeWindowSeconds)&&row.activeWindowSeconds>0&&row.activeWindowSeconds<=600?row.activeWindowSeconds:600;metric(metrics,"アクティブ人数（"+(activeSeconds===600?"直近10分":activeSeconds+"秒")+"）",activeVerified?row.activeUsers:null,"人");metrics.lastElementChild.title=activeVerified?row.activeStage||"投稿者ID重複除外":"直近10分の履歴範囲未確認";if(!verified||!activeVerified)body.append(element("small","nico-stat-note",[!verified?row.chatStage||"チャット履歴確認待ち":"",!activeVerified?row.activeStage||"アクティブ10分履歴確認待ち":""].filter(Boolean).join(" ／ ")));metric(metrics,"KICKsギフト（24時間受信分）",row.kicksGift," KICKs");metrics.lastElementChild.title=row.kicksGiftStage||"公式Webhook受信待ち";metric(metrics,"ギフトサブスク（有効数）",row.giftedSubscriptions,"件");metrics.lastElementChild.title=row.giftedSubscriptionsStage||"公式API取得待ち";if(numeric(row.giftedSubscriptionsReceived))metric(metrics,"ギフトサブスク（24時間受信分）",row.giftedSubscriptionsReceived,"件");if(row.kicksGift==null||row.giftedSubscriptions==null)body.append(element("small","nico-stat-note",[row.kicksGift==null?row.kicksGiftStage:"",row.giftedSubscriptions==null?row.giftedSubscriptionsStage:""].filter(Boolean).join(" ／ ")));}
+  }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);const seconds=[30,15,10].includes(row.chatWindowSeconds)?row.chatWindowSeconds:30;const windowLabel="直近"+seconds+"秒";const age=Date.now()-Date.parse(row.sampledAt),verified=row.chatPartial===false&&Number.isSafeInteger(row.chatCounts?.[seconds])&&Number.isFinite(age)&&age>=0&&age<=45000&&!stale;metric(metrics,"チャット（"+windowLabel+"）",verified?row.chatCounts[seconds]:null,"件");metrics.lastElementChild.title=verified?"公開履歴集計・"+new Date(row.sampledAt).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"}):"直近の履歴範囲未確認";if(verified)metrics.lastElementChild.querySelector("dd").append(element("small","rank-sample-age","（"+Math.floor(age/1000)+"秒前）"));const activeAge=Date.now()-Date.parse(row.activeSampledAt),activeVerified=row.activePartial===false&&Number.isFinite(activeAge)&&activeAge>=0&&activeAge<=90000&&!stale;const activeSeconds=Number.isSafeInteger(row.activeWindowSeconds)&&row.activeWindowSeconds>0&&row.activeWindowSeconds<=600?row.activeWindowSeconds:600;metric(metrics,"アクティブ人数（"+(activeSeconds===600?"直近10分":activeSeconds+"秒")+"）",activeVerified?row.activeUsers:null,"人");metrics.lastElementChild.title=activeVerified?row.activeStage||"投稿者ID重複除外":"直近10分の履歴範囲未確認";if(!verified||!activeVerified)body.append(element("small","nico-stat-note",[!verified?row.chatStage||"チャット履歴確認待ち":"",!activeVerified?row.activeStage||"アクティブ10分履歴確認待ち":""].filter(Boolean).join(" ／ ")));metric(metrics,"KICKsギフト（24時間受信分）",row.kicksGift," KICKs");metrics.lastElementChild.title=row.kicksGiftStage||"公式Webhook受信待ち";metric(metrics,"ギフトサブスク（有効数）",row.giftedSubscriptions,"件");metrics.lastElementChild.title=row.giftedSubscriptionsStage||"公式API取得待ち";if(numeric(row.giftedSubscriptionsReceived))metric(metrics,"ギフトサブスク（24時間受信分）",row.giftedSubscriptionsReceived,"件");if(row.kicksGift==null||row.giftedSubscriptions==null)body.append(element("small","nico-stat-note",[row.kicksGift==null?row.kicksGiftStage:"",row.giftedSubscriptions==null?row.giftedSubscriptionsStage:""].filter(Boolean).join(" ／ ")));}
   timing(metrics,row);body.append(top,metrics);li.append(rank,body);
   if(type==="kick"){li.dataset.kickId=row.id;if(existing&&existing.querySelector(".rank-thumbbox")===thumb){existing.className=li.className;existing.querySelector(".rank-position").replaceWith(rank);existing.querySelector(".rank-top").lastElementChild.replaceWith(heading);existing.querySelector(".rank-metrics").replaceWith(metrics);items.push(existing);}else items.push(li);}else items.push(li);
  }
@@ -462,14 +465,14 @@ async function loadRanking(force=false){
    if(previous?.fetchedAt===data.fetchedAt){if(!panel.querySelector(".rank-status").hidden)renderRanking(panel,previous);return;}
    const history=latestSavedHistory(validateRankHistory(rankingHistory.get(type),type,now),readRankHistory(type,now));
    data.sourceMetric=data.metric;
-   data.metric="総合勢いランキング r75";
+   data.metric="総合勢いランキング r76";
    if(type==="nico")data.entries=data.entries.map(mergeNicoSupplement);
    const before=previous?.sourceMetric===data.sourceMetric?previous:null;
    const compared=compareRanking(data,before,type);
    const ranked=scoreOverall(compared,type,now);
    data.entries=ranked.entries;data.overallUsed=ranked.used;data.overallTotal=ranked.total;data.overallWeight=ranked.weight;
    // Never compare positions from different score inputs; keep a new history when coverage changes.
-   data.metric="総合勢い r75 / "+ranked.keys;
+   data.metric="総合勢い r76 / "+ranked.keys;
    const prior=before?.metric===data.metric?before:previousRankSnapshot(history,data);
    const oldRanks=new Map((prior?.entries||[]).map((r,i)=>[r.id,r.rank??i+1]));
    data.entries=data.entries.map((r,i)=>({...r,previousRank:oldRanks.get(r.id)??null,rankChange:oldRanks.has(r.id)?oldRanks.get(r.id)-i-1:null}));
