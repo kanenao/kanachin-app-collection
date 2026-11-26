@@ -804,7 +804,7 @@ function watchErrorLabel(message){
  const code=String(message?.data?.code??message?.data?.reason??"");
  return /^[A-Z][A-Z0-9_]{1,60}$/.test(code)?code:"詳細なし";
 }
-async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt=""){
+async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt="",onProgress=null){
  if(!endpoint)return {watchStage:"視聴接続先未取得"};
  let ws;
  try{
@@ -830,7 +830,7 @@ async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt=""){
     if(raw instanceof ArrayBuffer){if(raw.byteLength>65536)return;raw=new TextDecoder().decode(raw);}
     if(typeof raw!=="string"||raw.length>65536)return;
     const stat=parseStatsMessage(raw);
-    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};maybeFinish();return;}
+    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};try{onProgress?.(latest);}catch{}maybeFinish();return;}
     try{
      const message=JSON.parse(raw);
      if(message.type==="ping")send({type:"pong"});
@@ -1528,7 +1528,7 @@ function statisticsFields(result){
  for(const k of ["advertising","gift","active10m","active60s","activitySampleEnd","activeRecent","activityRecentSeconds","activityRecentEnd"])if(Number.isSafeInteger(result?.[k])&&result[k]>=0)out[k]=result[k];
  return out;
 }
-async function nicoSupplementalStatistics(request){
+async function nicoSupplementalStatistics(request,emit=null){
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
  const url=new URL(request.url),origin=url.origin;
  let rank=null;
@@ -1536,13 +1536,14 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r72/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r78/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
   const fields=statisticsFields(row);
   if(fields.advertising!=null&&fields.gift!=null&&fields.active10m!=null){results.push({id:row.id,...fields,stage:"公開統計取得済み",checkedAt:Date.now()});continue;}
   pending.push({row,key});
  }
+ if(emit&&results.length)emit({status:"ok",entries:[...results]});
  const rotation=Math.floor(Date.now()/10000)%10;
  pending.sort((a,b)=>((rows.indexOf(a.row)-rotation+10)%10)-((rows.indexOf(b.row)-rotation+10)%10));
  await Promise.all(pending.slice(0,1).map(async({row,key})=>{
@@ -1553,9 +1554,10 @@ async function nicoSupplementalStatistics(request){
    if(detail){
     for(const [k,v] of Object.entries(statisticsFields(detail)))if(result[k]==null)result[k]=v;
     result.stage="公式統計接続先未取得";
+    if(emit)emit({status:"ok",entries:[{...result,stage:"番組情報取得済み・追加統計確認中",checkedAt:Date.now()}]});
     if(detail.statisticsEndpoint){
      const wantActivity=result.active10m==null;
-     const stat=await fetchNicoStatistics(detail.statisticsEndpoint,wantActivity,detail.startedAt||row.startedAt);
+     const stat=await fetchNicoStatistics(detail.statisticsEndpoint,wantActivity,detail.startedAt||row.startedAt,emit?value=>emit({status:"ok",entries:[{...result,...statisticsFields(value),stage:"公式統計受信済み・履歴確認中",checkedAt:Date.now()}]}):null);
      result.stage=stat?.watchStage||"公式統計通信失敗";
      if(stat){
       Object.assign(result,statisticsFields(stat));
@@ -1567,11 +1569,25 @@ async function nicoSupplementalStatistics(request){
   if(result.advertising!=null&&result.gift!=null&&result.active10m!=null)result.stage="3項目取得済み";
   else if(result.advertising!=null&&result.gift!=null)result.stage="広告・ギフト取得済み／"+result.stage;
   result.checkedAt=Date.now();results.push(result);
-  try{await caches.default.put(key,json(result,200,"public, max-age="+(result.advertising!=null&&result.gift!=null?60:30)));}catch{}
+  if(emit)emit({status:"ok",entries:[result]});
+  try{await caches.default.put(key,json(result,200,"public, max-age="+(result.active10m!=null&&result.advertising!=null&&result.gift!=null?60:15)));}catch{}
  }));
  return json({status:"ok",entries:results,pending:Math.max(0,pending.length-1)},200,"no-store");
 }
 
+function nicoStatisticsStream(request){
+ const encoder=new TextEncoder();let closed=false;
+ const body=new ReadableStream({
+  async start(controller){
+   const emit=value=>{if(!closed)controller.enqueue(encoder.encode(JSON.stringify(value)+"\n"));};
+   try{const result=await nicoSupplementalStatistics(request,emit);emit({...await result.json(),done:true});}
+   catch{try{emit({status:"error",message:"追加統計通信失敗",done:true});}catch{}}
+   finally{if(!closed){closed=true;controller.close();}}
+  },
+  cancel(){closed=true;}
+ });
+ return new Response(body,{headers:{"content-type":"application/x-ndjson; charset=utf-8","cache-control":"no-store, no-transform","x-content-type-options":"nosniff"}});
+}
 function connectionError(e){const message=String(e?.message||"");return /^HTTP \d{3}$/.test(message)?message:e?.name==="TimeoutError"||e?.name==="AbortError"?"タイムアウト":"接続失敗・応答確認";}
 async function kickConnectionProbe(env,getToken,readApi,clock){
  const out={configured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET),clientIdConfigured:!!env.KICK_CLIENT_ID,clientSecretConfigured:!!env.KICK_CLIENT_SECRET,tokenStatus:"未設定",livestreamStatus:"未確認",giftApiStatus:"未確認",giftDbConfigured:!!env.KICK_GIFT_DB,giftSubscriptionsConfigured:!!env.KICK_GIFT_SUBSCRIPTION_IDS,giftDbStatus:"未設定",checkedAt:clock()};
@@ -1647,7 +1663,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r77</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r78</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1701,10 +1717,10 @@ export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  if(["/admin/kick-api","/admin/kick-api/","/admin/kick-api/status","/admin/kick-api/login","/admin/kick-api/logout","/api/kick-connection"].includes(url.pathname))return kickAdminRoute(request,env,url.pathname);
  if(url.pathname==="/api/kick-gift-events")return kickGiftWebhook(request,env);
- if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
+ if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r77"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r78"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
