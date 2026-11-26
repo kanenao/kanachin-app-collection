@@ -43,11 +43,11 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 </style>
 </head>
 <body>
-<header><div class="wrap top"><a class="brand" href="/">かなちんの作成アプリ集</a><nav aria-label="メインメニュー"><a href="/#apps">アプリ一覧</a><a href="/rankings/" aria-current="page">LIVE配信ランキング</a><a href="/#roadmap">開発予定</a><a href="https://github.com/kanenao">GitHub</a><a href="https://x.com/KANE_NAO">X</a><a href="/admin/kick-api">管理者専用</a></nav></div></header>
+<header><div class="wrap top"><a class="brand" href="/">かなちんの作成アプリ集</a><nav aria-label="メインメニュー"><a href="/#apps">アプリ一覧</a><a href="/api/ranking-page" aria-current="page">LIVE配信ランキング</a><a href="/#roadmap">開発予定</a><a href="https://github.com/kanenao">GitHub</a><a href="https://x.com/KANE_NAO">X</a><a href="/admin/kick-api">管理者専用</a></nav></div></header>
 <main class="wrap ranking-page">
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h1 id="ranking-title">LIVE配信ランキング</h1></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各取得元の上位10番組を独自総合スコアで再順位付け（全配信の順位ではありません）。共有ライブ接続で取得した数値を順次反映。配信元の定期取得が必要な項目はサーバー側で共有取得します。未取得項目は全候補の採点から外し、暫定順位とします。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><p class="hint" id="rank-live-status" role="status" aria-live="polite">共有ライブ接続準備中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r82 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r83 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 function recordRankHistory(previous,data,type){
@@ -179,7 +179,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r82";
+const rankingRevision="2026.11.27-r83";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
