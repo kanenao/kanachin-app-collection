@@ -304,7 +304,7 @@ function kickImage(value){
 function kickPage(payload){
  if(!Array.isArray(payload?.data))throw Error("Kick応答形式が不正");
  const entries=[];let excluded=0;
- for(const r of payload.data){const slug=typeof r?.channel?.slug==="string"?r.channel.slug.toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof r.language_code==="string"?r.language_code:"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(x=>validatedThumb(x,"kick")).find(Boolean)||"",startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
+ for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(x=>validatedThumb(x,"kick")).find(Boolean)||"",startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
  const cursor=payload.pagination?.next_cursor; if(cursor!=null&&(typeof cursor!=="string"||cursor.length>2048))throw Error("Kickページ情報が不正");
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
@@ -652,7 +652,7 @@ async function enrichKickPublicMetrics(data,origin,env){
  // Batch top ten only; cache channel totals for two minutes.
  if(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET){
   try{
-   const key=new Request(origin+"/__cache/kick-channels-r23/"+rows.map(r=>r.id).sort().join(","));
+   const key=new Request(origin+"/__cache/kick-channels-r35/"+rows.map(r=>r.id).sort().join(","));
    const cached=await caches.default.match(key);let payload;
    if(cached)payload=await cached.json();
    else{
@@ -660,10 +660,10 @@ async function enrichKickPublicMetrics(data,origin,env){
     for(const row of rows)if(/^[a-z0-9_-]{1,40}$/.test(row.id))url.searchParams.append("slug",row.id);
     const response=JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}},1024*1024));
     // Cache only the public aggregate fields, never account tokens or other metadata.
-    payload={data:(Array.isArray(response.data)?response.data:[]).map(x=>({slug:x.slug,stream:{is_live:x.stream?.is_live},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
-    try{await caches.default.put(key,json(payload,200,"public, max-age=120"));}catch{}
+    payload={data:(Array.isArray(response.data)?response.data:[]).map(x=>({slug:x.slug,stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(v=>validatedThumb(v,"kick")).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
+    try{await caches.default.put(key,json(payload,200,"public, max-age=30"));}catch{}
    }
-   for(const row of rows)row.giftedSubscriptions=kickGiftedSubs(payload,row.id);
+   for(const row of rows){row.giftedSubscriptions=kickGiftedSubs(payload,row.id);const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(v=>validatedThumb(v,"kick")).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;}if(!row.startedAt&&started)row.startedAt=started;}
   }catch{}
  }
  // Recent public chat snapshots only: no WebSocket, webhook, user records, or chat archive.
@@ -706,8 +706,8 @@ function imageCandidates(...items){
  for(const item of items)walk(item,0);return [...new Set(out)].slice(0,24);
 }
 function kickFramePath(host,path){
- return (host==="images.kick.com"&&/^\/video_thumbnails\/[^/]+\/[^/]+\/[^/]+\.(?:webp|jpe?g|png)$/i.test(path))||
- (["stream.kick.com","files.kick.com","kick-prod-videos-30-day.s3.us-west-2.amazonaws.com"].includes(host)&&/^\/thumbnails\/livestream\/.+\/video_thumbnail\/.+\.(?:webp|jpe?g|png)$/i.test(path));
+ return (host==="images.kick.com"&&/^\/video_thumbnails\/[a-z0-9_-]+\/[a-z0-9_-]+\/[^/]+\.(?:webp|jpe?g|png)$/i.test(path))||
+ (["stream.kick.com","files.kick.com","kick-prod-videos-30-day.s3.us-west-2.amazonaws.com"].includes(host)&&/^\/thumbnails\/livestream\/[^/]+\/[^/]+\/video_thumbnail\/.+\.(?:webp|jpe?g|png)$/i.test(path));
 }
 function kickFrameCandidates(live){
  if(!live||typeof live!=="object"||live.is_live===false)return [];
@@ -716,13 +716,17 @@ function kickFrameCandidates(live){
   if(typeof v==="string")values.push(v);
   else if(v&&typeof v==="object"){
    for(const k of ["url","src","link"])if(typeof v[k]==="string")values.push(v[k]);
-   if(typeof v.responsive==="string"){
-    const parts=[...v.responsive.matchAll(/(https:\/\/[^\s,]+)\s+(\d+)w(?:\s*,|$)/g)].map(m=>({url:m[1],width:Number(m[2])}));
+   for(const src of [v.srcset,v.srcSet,v.responsive])if(typeof src==="string"){
+    const parts=[...src.matchAll(/(https:\/\/[^\s,]+)\s+(\d+)w(?:\s*,|$)/g)].map(m=>({url:m[1],width:Number(m[2])}));
     parts.sort((a,b)=>Math.abs(a.width-480)-Math.abs(b.width-480));values.push(...parts.slice(0,3).map(x=>x.url));
    }
   }
  }
- return [...new Set(values)].slice(0,8);
+ return [...new Set(values.map(v=>v.replaceAll("&amp;","&")))].slice(0,8);
+}
+function kickChannelLiveRow(payload,id){
+ const channel=payload?.data?.find?.(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===id);
+ return channel?.stream?.is_live===true?channel.stream:null;
 }
 function validatedThumb(value,type){
  if(typeof value!=="string"||value.length>2048)return "";
@@ -768,7 +772,7 @@ async function resolveThumbnailCandidates(type,id,rows){
     if([live.slug,live.channel?.slug,payload.channel?.slug].some(x=>typeof x==="string"&&x.toLowerCase()!==id))continue;
     const liveStart=time(live.start_time??live.started_at??live.created_at),knownStart=time(known?.startedAt);if(liveStart&&knownStart&&Math.abs(Date.parse(liveStart)-Date.parse(knownStart))>60000)continue;
     const candidates=kickFrameCandidates(live);
-    if(candidates.some(v=>validatedThumb(v,type)))return [...new Set(candidates)];
+    if(candidates.some(v=>validatedThumb(v,type)))return [...new Set([...candidates,...fromRank])];
    }catch{}
   }
  }
@@ -798,11 +802,11 @@ async function liveThumbnail(request){
  const url=new URL(request.url),type=url.searchParams.get("service"),id=url.searchParams.get("id")||"";
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r34":"r33")+"/"+type+"/"+id);
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r34":"r35")+"/"+type+"/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
- for(const suffix of ["?revision=r34","?last-good=r34"]){
+ for(const suffix of ["?revision=r35","?last-good=r35"]){
   try{const response=await caches.default.match(new Request(url.origin+"/api/rankings/"+type+suffix));const data=response&&await response.json();if(Array.isArray(data?.entries)&&data.entries.some(x=>x.id===id)){rows=data.entries;break;}}catch{}
  }
  if(!rows.length)return new Response(null,{status:404,headers:{"cache-control":"no-store"}});
@@ -812,8 +816,8 @@ async function liveThumbnail(request){
  async function tryImages(images){
   for(const raw of images){const candidate=validatedThumb(raw,type);if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:4))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type);if(response)return response;}return null;
  }
- let result=type==="kick"?await tryImages(await resolveThumbnailCandidates(type,id,rows)):await tryImages(rankImages.slice(0,2));
- if(!result&&type==="nico")result=await tryImages(await resolveThumbnailCandidates(type,id,rows));
+ let result=await tryImages(rankImages.slice(0,2));
+ if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows));
  if(!result)result=new Response(null,{status:404,headers:{"cache-control":"public, max-age=25"}});
  try{await caches.default.put(key,result.clone());}catch{}
  return result;
@@ -823,11 +827,11 @@ export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r34",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r35",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r34"),backup=new Request(url.origin+url.pathname+"?last-good=r34");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r35"),backup=new Request(url.origin+url.pathname+"?last-good=r35");
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
