@@ -18,10 +18,12 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 @media(min-width:760px) and (max-width:1049px){.grid{grid-template-columns:1fr}.app{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);column-gap:18px;align-items:start}.app-head{grid-column:1;grid-row:1}.desc{grid-column:1;grid-row:2}.buttons{grid-column:1;grid-row:3;margin-bottom:0}.versions{grid-column:2;grid-row:1/span 4;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.version-row:has([data-channel="preview"]){grid-column:1/-1}}
 @media(max-width:759px){.wrap{width:calc(100% - 28px)}.top{gap:8px}.hero{margin-top:14px}.grid{grid-template-columns:1fr}.roadmap ul{grid-template-columns:1fr}.app{padding:15px}.controls button{flex:0 1 auto}.controls input{flex-basis:160px}}
 .news{background:white;border:1px solid var(--line);border-radius:14px;padding:18px;margin:24px 0}.news-jump{font-size:12px}.news-controls{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}.news-controls button{border:1px solid var(--line);background:#fff;color:var(--muted);padding:5px 12px;border-radius:7px;font-size:12px}.news-controls button[aria-pressed="true"]{background:var(--accent);color:white;border-color:var(--accent)}.news-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.news-item{border:1px solid var(--line);border-radius:9px;padding:11px;min-width:0}.news-meta{display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted)}.news-tag{font-weight:700;background:#edf1f7;color:#43546b;padding:2px 6px;border-radius:4px}.news-tag.stable{background:#e5f2e9;color:#246544}.news-tag.beta{background:#e4edfc;color:#2156a0}.news-name{font-size:12px;color:var(--muted);margin:5px 0 0;overflow-wrap:anywhere}.news-version{font-size:14px;font-weight:750;overflow-wrap:anywhere}.news-summary{font-size:12px;margin:5px 0 0;overflow-wrap:anywhere}.news-list:empty{display:none}@media(max-width:759px){.news-list{grid-template-columns:1fr}.news{padding:14px}}
+
+.rankings{margin:24px 0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px}.rankings .heading{flex-wrap:wrap}.rank-actions{display:flex;gap:8px;flex-wrap:wrap}.rank-actions button{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 11px;color:var(--ink);font-size:13px}.rank-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:10px}.rank-panel{min-width:0;background:#f5f8fc;border:1px solid var(--line);padding:13px;border-radius:10px}.rank-panel h3{margin:0;font-size:16px}.rank-list{list-style:none;margin:0;padding:0}.rank-list li{display:grid;grid-template-columns:30px minmax(0,1fr);gap:7px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}.rank-list li strong{font-size:15px;color:var(--muted)}.rank-list a{font-weight:700;overflow-wrap:anywhere}.rank-list small{display:block;color:var(--muted)}.rank-source{font-size:12px}@media(max-width:759px){.rank-panels{grid-template-columns:1fr}.rankings{padding:14px}}
 </style>
 </head>
 <body>
-<header><div class="wrap top"><a class="brand" href="./">かなちんの作成アプリ集</a><nav aria-label="メインメニュー"><a href="#apps">アプリ一覧</a><a href="#updates">新着情報</a><a href="#roadmap">開発予定</a><a href="https://github.com/kanenao">GitHub</a><a href="https://x.com/KANE_NAO">X</a></nav></div></header>
+<header><div class="wrap top"><a class="brand" href="./">かなちんの作成アプリ集</a><nav aria-label="メインメニュー"><a href="#apps">アプリ一覧</a><a href="#updates">新着情報</a><a href="#rankings">配信ランキング</a><a href="#roadmap">開発予定</a><a href="https://github.com/kanenao">GitHub</a><a href="https://x.com/KANE_NAO">X</a></nav></div></header>
 <main class="wrap">
 <section class="hero"><small>LIVE STREAM TOOLS</small><h1>配信を、もっと便利に。</h1><p>ニコニコ生放送・Kickの録画、コメント保存、配信支援アプリをまとめて紹介。</p><a href="#apps">アプリを探す</a></section>
 <section aria-labelledby="apps"><div class="heading"><h2 id="apps">アプリ一覧</h2><span id="count">3件</span></div><p class="hint">GitHubの公開リリースから正規版・β版の公開日時（日本時間）と主な更新内容を表示します。ダウンロードは各公式リリースページから。</p>
@@ -39,9 +41,10 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 <div class="news-controls" role="group" aria-label="リリースの種類"><button type="button" data-filter="all" aria-pressed="true">すべて</button><button type="button" data-filter="stable" aria-pressed="false">正規版</button><button type="button" data-filter="beta" aria-pressed="false">β版</button><button type="button" data-filter="alpha" aria-pressed="false">α版</button></div>
 <p id="news-status" class="hint" role="status">更新情報を取得中…</p><ol id="news-list" class="news-list"></ol>
 </section>
-<section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>ニコニコ生放送・Kick リアルタイムランキング</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
+<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><h2 id="ranking-title">配信ランキング（試験版）</h2><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">公開データを取得。表示中は60秒間隔で更新します。未取得の人数は推測しません。</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><h3>ニコニコ生放送</h3><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol><a class="rank-source" href="https://live.nicovideo.jp/ranking">公式ランキングへ</a></section><section class="rank-panel" data-platform="kick"><h3>Kick 日本語配信</h3><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol><a class="rank-source" href="https://kick.com/">Kickへ</a></section></div></section>
+<section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r5 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r6 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -102,5 +105,19 @@ document.querySelector("#search").addEventListener("input",e=>{const q=e.target.
 refresh.addEventListener("click",()=>load(true));load();
 setInterval(()=>{if(!document.hidden)load();},TTL);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-lastAttempt>=TTL)load();});
+
+let rankingBusy=false,rankingLast=0;
+const rankPrevious=new Map(),rankPanels=[...document.querySelectorAll(".rank-panel")];
+function numberLabel(v){return Number.isSafeInteger(v)&&v>=0?v.toLocaleString("ja-JP"):"未取得";}
+function showRanking(panel,data,stale=false){
+ const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status");list.replaceChildren();
+ if(data.status!=="ok"){status.textContent=data.message||"取得できません";return;}
+ status.textContent=(stale?"前回取得分 ／ ":"")+data.metric+" ／ "+(data.complete?"取得完了":"取得範囲内・参考順位")+" ／ "+publishedLabel(data.fetchedAt);
+ for(const [index,r] of data.entries.slice(0,20).entries()){const li=document.createElement("li"),rank=document.createElement("strong"),body=document.createElement("div"),link=document.createElement("a"),meta=document.createElement("small");rank.textContent=String(index+1);link.href=panel.dataset.platform==="nico"?"https://live.nicovideo.jp/watch/"+encodeURIComponent(r.id):"https://kick.com/"+encodeURIComponent(r.id);link.textContent=r.title||r.name||"タイトルなし";meta.textContent=(r.name?r.name+" ／ ":"")+(panel.dataset.platform==="nico"?"来場者 "+numberLabel(r.visitors)+" ・ コメント "+numberLabel(r.comments):"同時視聴者 "+numberLabel(r.viewers));body.append(link,meta);li.append(rank,body);list.append(li);}
+ if(!data.entries.length)status.textContent+=" ／ 対象番組なし";
+}
+async function loadRanking(){if(rankingBusy||Date.now()-rankingLast<55000)return;rankingBusy=true;rankingLast=Date.now();const button=document.querySelector("#rank-refresh");button.disabled=true;
+ try{await Promise.all(rankPanels.map(async panel=>{const type=panel.dataset.platform;try{const response=await fetch("/api/rankings/"+type,{signal:AbortSignal.timeout(30000)});const data=await response.json();if(data.status==="unconfigured"){rankPrevious.delete(type);showRanking(panel,data);return;}if(!response.ok||data.status!=="ok"||!Array.isArray(data.entries))throw Error("invalid response");rankPrevious.set(type,data);showRanking(panel,data);}catch{const previous=rankPrevious.get(type);showRanking(panel,previous||{status:"error",message:"ランキングを取得できません。公式ページをご確認ください。"},!!previous);}}));}finally{rankingBusy=false;button.disabled=false;}}
+document.querySelector("#rank-refresh").addEventListener("click",loadRanking);loadRanking();setInterval(()=>{if(!document.hidden)loadRanking();},60000);
 </script>
 </body></html>
