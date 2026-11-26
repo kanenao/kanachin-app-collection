@@ -1,0 +1,1 @@
+# kanachin-app-collection
