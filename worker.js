@@ -530,7 +530,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r51";
+const RANK_CACHE_REVISION="r53";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -834,6 +834,36 @@ function kickGiftedSubs(payload,slug){
  const row=rows.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===slug&&x.stream?.is_live===true);
  const n=row?.active_gifted_subscribers_count;return Number.isSafeInteger(n)&&n>=0?n:null;
 }
+function mergeShobonThumbnails(rows,reference){
+ return rows.map(row=>{
+  if(row.thumbnail||row.thumbnailCandidates?.length)return row;
+  const candidates=reference[row.id];
+  if(!Array.isArray(candidates)||!candidates.length)return row;
+  return {...row,thumbnail:candidates[0],thumbnailCandidates:candidates.slice(0,3),thumbnailVerified:true,thumbnailSource:"しょぼんランキング"};
+ });
+}
+async function shobonThumbnailSnapshot(origin){
+ // The reference publishes data approximately every ten minutes. Fetch only
+ // the public page, not an undocumented endpoint, and cache negative results.
+ const key=new Request(origin+"/__cache/kick-shobon-images-r53");
+ try{
+  const cached=await caches.default.match(key);
+  if(cached)return await cached.json();
+  // Best-effort per-edge request guard; no per-channel requests to this site.
+  await caches.default.put(key,json({},200,"public, max-age=600"));
+ }catch{return {};}
+ const rows=Object.create(null);
+ try{
+  const html=await fetchBounded("https://shobon-ranking.com/jp/rank/realtime",{headers:{accept:"text/html"}},3*1024*1024);
+  for(const [slug,images] of parseKickReferenceImages(html)){
+   // Only established Kick live-frame CDN paths, never third-party images.
+   const checked=images.map(v=>validatedThumb(v,"kick")).filter(Boolean).slice(0,3);
+   if(checked.length)rows[slug]=checked;
+  }
+  await caches.default.put(key,json(rows,200,"public, max-age=600"));
+ }catch{}
+ return rows;
+}
 async function enrichKickPublicMetrics(data,origin,env){
  if(!Array.isArray(data.entries)||!data.entries.length)return data;
  const rows=data.entries.slice(0,10);
@@ -880,7 +910,8 @@ async function enrichKickPublicMetrics(data,origin,env){
   }catch{}
   try{await caches.default.put(key,json(result,200,"public, max-age=120"));}catch{}
  }));
- return {...data,entries:rows};
+ const enriched=rows.some(row=>!row.thumbnail&&!row.thumbnailCandidates?.length)?mergeShobonThumbnails(rows,await shobonThumbnailSnapshot(origin)):rows;
+ return {...data,entries:enriched};
 }
 
 function json(value,status=200,cache="no-store"){return new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":cache,"x-content-type-options":"nosniff"}});}
@@ -1172,7 +1203,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r52",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r53",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
