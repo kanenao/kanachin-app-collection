@@ -51,7 +51,7 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各上位10件・10秒間隔で自動更新。順位は取得範囲内の参考順位です。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r22 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r23 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -123,7 +123,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.26-r22";
+const rankingRevision="2026.11.26-r23";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -143,7 +143,7 @@ function metric(list,label,value,unit="",delta=null){
 function timing(list,row){const wrap=element("div"),value=durationLabel(row);wrap.append(element("dt","","配信時間"),element("dd",value==="未取得"?"rank-unknown":"",value));list.append(wrap);}
 function renderRanking(panel,data,stale=false){
  const list=panel.querySelector(".rank-list"),status=panel.querySelector(".rank-status"),type=panel.dataset.platform;
- panel.querySelector(".rank-mode").textContent=data.metric|| (type==="nico"?"公開ランキング":"同時視聴者数");
+ panel.querySelector(".rank-mode").textContent=(data.metric|| (type==="nico"?"公開ランキング":"同時視聴者数"))+(type==="kick"?" ／ コメント・人数は直近10分の公開取得分（最大2分キャッシュ）":"");
  status.hidden=!stale&&data.status==="ok"&&data.entries.length>0;
  status.textContent=stale?"最新取得に失敗・前回取得分":data.status==="ok"?"対象番組なし":data.message||"取得できません";
  if(data.status!=="ok"){list.replaceChildren();return;}
@@ -158,7 +158,7 @@ function renderRanking(panel,data,stale=false){
   if(type==="nico"){
    metric(metrics,"勢い",row.momentum,"pt");metric(metrics,"来場者",row.visitors,"人",stale?null:row.visitorChange);metric(metrics,"コメント",row.comments,"件",stale?null:row.commentChange);
    metric(metrics,"広告",row.advertising,"pt");metric(metrics,"ギフト",row.gift,"pt");metric(metrics,"アクティブ（10分）",row.active10m,"人");
-  }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);}
+  }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);metric(metrics,"受信コメント（取得分）",row.receivedComments,"件");metric(metrics,"アクティブ（取得分）",row.activeUsers,"人");metric(metrics,"KICKsギフト",row.kicksGift," KICKs");metric(metrics,"ギフトサブスク（有効数）",row.giftedSubscriptions,"件");}
   timing(metrics,row);body.append(top,metrics);li.append(rank,body);items.push(li);
  }
  list.replaceChildren(...items);
