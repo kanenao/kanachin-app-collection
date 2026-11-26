@@ -108,6 +108,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 @media(max-width:1050px){.ranking-page{width:calc(100% - 24px)}.rank-list li>.rank-content{grid-template-columns:minmax(0,1fr)}.ranking-page .rank-top,.ranking-page .rank-top-three .rank-top{grid-template-columns:140px minmax(0,1fr)}.rank-metrics{margin-top:6px;grid-template-columns:minmax(105px,1.25fr) repeat(4,minmax(0,1fr))}}
 @media(max-width:600px){.ranking-page{width:calc(100% - 12px)}.rank-panel{padding:5px}.rank-list li,.rank-list li.rank-top-three{grid-template-columns:49px minmax(0,1fr);gap:5px;padding:7px 5px}.rank-list li>strong,.rank-list li.rank-top-three>strong{font-size:19px}.rank-position .rank-move{font-size:9px;padding:2px}.ranking-page .rank-top,.ranking-page .rank-top-three .rank-top{grid-template-columns:90px minmax(0,1fr);gap:6px}.rank-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.rank-metrics .rank-overall{grid-column:1/-1;grid-row:auto;display:grid;grid-template-columns:1fr auto}.rank-metrics .rank-overall dd{font-size:18px}.rank-title{font-size:13px}.rank-view-hint{display:none}.rank-view-controls button{padding:5px 8px;font-size:12px}}
 .rank-auto-countdown{align-self:center;padding:6px 10px;border:1px solid #c7d8ed;border-radius:6px;background:#edf4ff;color:#245fb2;font-size:12px;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rank-duration{font-variant-numeric:tabular-nums;white-space:nowrap!important}
 </style>
 </head>
 <body>
@@ -115,7 +116,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <main class="wrap ranking-page">
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h1 id="ranking-title">LIVE配信ランキング</h1></div><div class="rank-actions"><span id="rank-auto-countdown" class="rank-auto-countdown" aria-label="自動更新までの時間">自動更新 60秒</span><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各サービスの取得元上位10番組を独自総合スコアで比較。数値と順位は60秒ごとに自動更新し、追加統計を順次反映します。未取得項目は採点対象外です。</p><details class="rank-explanation"><summary>集計方法・表示の見方</summary><p>全配信の順位ではなく、取得元の上位10番組を比較しています。配信元の定期取得が必要な項目はサーバー側で共有取得します。未取得項目は全候補の採点から外して暫定順位を表示します。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p></details><div class="rank-legend"><span><b class="up">▲ UP</b> 上昇</span><span><b class="down">▼ DOWN</b> 下降</span><span><b>→ KEEP</b> 維持</span><span><b class="new">NEW</b> 新規</span><span>未取得は採点対象外・総合100点満点</span></div><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><p class="hint" id="rank-live-status" role="status" aria-live="polite">共有ライブ接続準備中…</p><div class="rank-view-controls" role="group" aria-label="表示する配信サービス"><button type="button" data-rank-view="all" aria-pressed="true">すべて</button><button type="button" data-rank-view="nico" aria-pressed="false">ニコニコ生放送</button><button type="button" data-rank-view="kick" aria-pressed="false">Kick</button><span class="rank-view-hint">横長一覧 · 各サービス TOP 10</span></div><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><div class="rank-toolbar"><label>並び順 <select class="rank-sort" aria-label="ニコニコ生放送の並び順"><option value="overall">総合勢い順</option><option value="momentum">勢いpt順</option><option value="visitors">来場者順</option><option value="comments">コメント順</option><option value="active">アクティブ10分順</option><option value="advertising">広告pt順</option><option value="gift">ギフトpt順</option></select></label><span class="rank-updated">取得時刻 —</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><div class="rank-toolbar"><label>並び順 <select class="rank-sort" aria-label="Kickの並び順"><option value="overall">総合勢い順</option><option value="viewers">同接順</option><option value="comments">チャット30秒順</option><option value="active">アクティブ10分順</option><option value="kicksGift">KICKs順</option><option value="giftedSubscriptions">ギフトサブスク順</option></select></label><span class="rank-updated">取得時刻 —</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r95 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r96 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 function recordRankHistory(previous,data,type){
@@ -247,11 +248,12 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r95";
+const rankingRevision="2026.11.27-r96";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
-function durationLabel(r){const start=Date.parse(r.startedAt);if(Number.isFinite(start)&&start<=Date.now()){const m=Math.floor((Date.now()-start)/60000);return (m>=1440?Math.floor(m/1440)+"日":"")+(m%1440>=60?Math.floor(m%1440/60)+"時間":"")+m%60+"分";}return typeof r.duration==="string"&&r.duration?r.duration:"未取得";}
+function durationLabel(r,now=Date.now()){const start=Date.parse(r.startedAt);if(Number.isFinite(start)&&start<=now){const sec=Math.floor((now-start)/1000),h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),ss=sec%60;return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(ss).padStart(2,"0");}return typeof r.duration==="string"&&r.duration?r.duration:"未取得";}
+function tickDurations(now=Date.now()){if(document.hidden)return;for(const dd of document.querySelectorAll(".rank-duration[data-started-at]")){const text=durationLabel({startedAt:dd.dataset.startedAt},now);if(dd.textContent!==text)dd.textContent=text;}}
 function kickExplicitImage(raw){
  if(typeof raw!=="string"||raw.length>2048)return "";
  try{const u=new URL(raw.trim().replaceAll("&amp;","&"));if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||/profile|avatar|usericon|channel-icon|category|banner|\/icons?\//i.test(u.pathname))return "";return u.hostname==="kick.com"||u.hostname.endsWith(".kick.com")?u.href:"";}catch{return "";}
@@ -389,27 +391,27 @@ function metric(list,label,value,unit="",delta=null){
  if(Number.isSafeInteger(delta)){const d=element("span","rank-delta"+(delta<0?" negative":"")," "+(delta>0?"+":"")+format(delta));dd.append(d);}
  wrap.append(dt,dd);list.append(wrap);
 }
-function timing(list,row){const wrap=element("div"),value=durationLabel(row);wrap.append(element("dt","","配信時間"),element("dd",value==="未取得"?"rank-unknown":"",value));list.append(wrap);}
+function timing(list,row){const wrap=element("div"),value=durationLabel(row),dd=element("dd","rank-duration"+(value==="未取得"?" rank-unknown":""),value);if(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)<=Date.now()){dd.dataset.startedAt=row.startedAt;dd.title="開始時刻から計算した経過時間（時:分:秒）";}else if(value!=="未取得")dd.title="取得元の表示時間・正確な開始時刻未取得";wrap.append(element("dt","","配信時間"),dd);list.append(wrap);}
 
 const nicoStatisticsCache=new Map();
 let nicoStatisticsBusy=false;
 function mergeNicoSupplement(row){
  const saved=nicoStatisticsCache.get(row.id);
- if(!saved||Date.now()-saved.checkedAt>180000)return row;
+ if(!saved||Date.now()-saved.checkedAt>900000)return row;
  const merged={...row};
- for(const k of ["advertising","gift"])if(Number.isSafeInteger(saved[k])&&saved[k]>=0&&(merged[k]==null||saved.checkedAt>=Date.now()-60000))merged[k]=saved[k];
- const freshActivity=Number.isFinite(saved.activitySampleEnd)&&(!Number.isFinite(merged.activitySampleEnd)||saved.activitySampleEnd>=merged.activitySampleEnd);
- if(Number.isSafeInteger(saved.active10m)&&saved.active10m>=0&&(merged.active10m==null||freshActivity)){merged.active10m=saved.active10m;if(Number.isFinite(saved.activitySampleEnd))merged.activitySampleEnd=saved.activitySampleEnd;}
- for(const k of ["active60s","activeRecent","activityRecentSeconds","activityRecentEnd"])if(Number.isSafeInteger(saved[k])&&saved[k]>=0&&(merged[k]==null||freshActivity))merged[k]=saved[k];
- for(const k of ["userId","channelId","profileUrl","providerKind"])if(saved[k]&&!merged[k])merged[k]=saved[k];
+ for(const k of ["advertising","gift"])if(Number.isSafeInteger(saved[k])&&saved[k]>=0&&(merged[k]==null||saved[k+"At"]>=Date.now()-60000)){merged[k]=saved[k];merged[k+"At"]=saved[k+"At"]??null;}
+ const freshActivity=Number.isFinite(saved.activitySampleEnd)&&Date.now()-saved.activitySampleEnd*1000<=240000&&saved.activitySampleEnd*1000<=Date.now()+30000&&(!Number.isFinite(merged.activitySampleEnd)||saved.activitySampleEnd>=merged.activitySampleEnd);
+ if(Number.isSafeInteger(saved.active10m)&&saved.active10m>=0&&freshActivity){merged.active10m=saved.active10m;if(Number.isFinite(saved.activitySampleEnd))merged.activitySampleEnd=saved.activitySampleEnd;}
+ for(const k of ["active60s","activeRecent","activityRecentSeconds","activityRecentEnd"])if(Number.isSafeInteger(saved[k])&&saved[k]>=0&&freshActivity)merged[k]=saved[k];
+ for(const k of ["userId","channelId","profileUrl","providerKind","startedAt"])if(saved[k]&&!merged[k])merged[k]=saved[k];
  merged.statisticsStage=saved.stage;
  return merged;
 }
 function mergeNicoStatsRecord(old,row,now){
  const merged={...row};
- if(old&&now-old.checkedAt<=180000){
-  for(const k of ["userId","channelId","profileUrl","providerKind"])if(!merged[k]&&old[k])merged[k]=old[k];
-  for(const k of ["advertising","gift"])if(!Number.isSafeInteger(merged[k])&&Number.isSafeInteger(old[k]))merged[k]=old[k];
+ if(old&&now-old.checkedAt<=900000){
+  for(const k of ["userId","channelId","profileUrl","providerKind","startedAt"])if(!merged[k]&&old[k])merged[k]=old[k];
+  for(const k of ["advertising","gift"])if(!Number.isSafeInteger(merged[k])&&Number.isSafeInteger(old[k])){merged[k]=old[k];merged[k+"At"]=old[k+"At"]??null;}
   for(const [value,keys] of [["active10m",["active10m","activitySampleEnd"]],["active60s",["active60s"]],["activeRecent",["activeRecent","activityRecentSeconds","activityRecentEnd"]]]){
    const at=value==="activeRecent"?old.activityRecentEnd:old.activitySampleEnd;
    if(!Number.isSafeInteger(merged[value])&&Number.isSafeInteger(old[value])&&Number.isFinite(at)&&now-at*1000<=240000&&now>=at*1000)for(const k of keys)if(Number.isSafeInteger(old[k]))merged[k]=old[k];
@@ -442,7 +444,7 @@ async function refreshNicoStatistics(){
  nicoStatisticsBusy=true;
  const panel=document.querySelector('[data-platform="nico"]');
  try{
-  const res=await fetch("/api/nico-statistics?stream=1",{cache:"no-store",signal:AbortSignal.timeout(45000)});
+  const res=await fetch("/api/nico-statistics?stream=1",{cache:"no-store",signal:AbortSignal.timeout(85000)});
   if(!res.ok)throw Error("統計API HTTP "+res.status);
   if(!res.headers.get("content-type")?.includes("application/x-ndjson")||!res.body){applyNicoStatistics(await res.json(),panel);return;}
   const reader=res.body.getReader(),decoder=new TextDecoder();let pending="";
@@ -525,7 +527,7 @@ function renderRanking(panel,data,stale=false){
   const overall=element("div","rank-overall");overall.append(element("dt","","総合勢いスコア"),element("dd","",typeof row.overallScore==="number"?row.overallScore.toFixed(1)+" / 100":"集計待ち"));overall.title="全候補で確認できた "+(row.overallUsed??0)+"/"+(row.overallTotal??0)+"項目で採点"+(row.overallChatSeconds?"・チャット共通"+row.overallChatSeconds+"秒":"");const track=element("span","rank-score-track"),fill=element("span","rank-score-fill");fill.style.width=(numeric(row.overallScore)?Math.max(0,Math.min(100,row.overallScore)):0)+"%";track.append(fill);overall.append(track,element("span","rank-coverage",row.overallUsed===row.overallTotal&&row.overallTotal>0?"確認済み "+row.overallUsed+"項目":"暫定・"+(row.overallUsed??0)+"/"+(row.overallTotal??0)+"項目"));metrics.append(overall);
   if(type==="nico"){
    metric(metrics,"勢い",row.momentum,"pt");metric(metrics,"来場者",row.visitors,"人",stale?null:row.visitorChange);metric(metrics,"コメント",row.comments,"件",stale?null:row.commentChange);
-   metric(metrics,"広告（累計）",row.advertising,"pt");metric(metrics,"ギフト（累計）",row.gift,"pt");metric(metrics,"アクティブ（10分）",row.active10m,"人");if(numeric(row.active10m)&&Number.isFinite(row.activitySampleEnd)){const end=Number(row.activitySampleEnd)*1000;metrics.lastElementChild.title="集計終了時刻 "+new Date(end).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.active10m==null&&numeric(row.active60s))metric(metrics,"アクティブ（1分実測）",row.active60s,"人");else if(row.active10m==null&&numeric(row.activeRecent)&&Number.isSafeInteger(row.activityRecentSeconds)&&row.activityRecentSeconds>0&&row.activityRecentSeconds<=600){metric(metrics,"アクティブ（"+row.activityRecentSeconds+"秒実測）",row.activeRecent,"人");if(Number.isFinite(row.activityRecentEnd))metrics.lastElementChild.title="集計終了時刻 "+new Date(row.activityRecentEnd*1000).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.advertising==null||row.gift==null||row.active10m==null){const detail=element("small","nico-stat-note",row.statisticsStage||"追加統計を順次確認中");body.append(detail);}
+   for(const [key,label] of [["advertising","広告（累計）"],["gift","ギフト（累計）"]]){metric(metrics,label,row[key],"pt");const at=row[key+"At"];if(numeric(row[key])&&Number.isFinite(at)){metrics.lastElementChild.title="取得時刻 "+new Date(at).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});if(Date.now()-at>120000)metrics.lastElementChild.querySelector("dd").append(element("small","rank-sample-age","（前回）"));}}metric(metrics,"アクティブ（10分）",row.active10m,"人");if(numeric(row.active10m)&&Number.isFinite(row.activitySampleEnd)){const end=Number(row.activitySampleEnd)*1000;metrics.lastElementChild.title="集計終了時刻 "+new Date(end).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.active10m==null&&numeric(row.active60s))metric(metrics,"アクティブ（1分実測）",row.active60s,"人");else if(row.active10m==null&&numeric(row.activeRecent)&&Number.isSafeInteger(row.activityRecentSeconds)&&row.activityRecentSeconds>0&&row.activityRecentSeconds<=600){metric(metrics,"アクティブ（"+row.activityRecentSeconds+"秒実測）",row.activeRecent,"人");if(Number.isFinite(row.activityRecentEnd))metrics.lastElementChild.title="集計終了時刻 "+new Date(row.activityRecentEnd*1000).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"});}if(row.advertising==null||row.gift==null||row.active10m==null){const detail=element("small","nico-stat-note",row.statisticsStage||"追加統計を順次確認中");body.append(detail);}
   }else{metric(metrics,"同時視聴者",row.viewers,"人");const d=stale?null:row.viewerChange;const block=element("div");block.append(element("dt","","視聴者増減"),element("dd",Number.isSafeInteger(d)?"":"rank-unknown",Number.isSafeInteger(d)?(d>0?"+":"")+format(d)+"人":"比較待ち"));metrics.append(block);const seconds=[30,15,10,5].includes(row.chatWindowSeconds)?row.chatWindowSeconds:30;const windowLabel="直近"+seconds+"秒";const age=Date.now()-Date.parse(row.sampledAt),verified=row.chatPartial===false&&Number.isSafeInteger(row.chatCounts?.[seconds])&&Number.isFinite(age)&&age>=0&&age<=45000&&!stale;const priorChat=!verified&&row.chatPartial===false&&numeric(row.chatCounts?.[seconds])&&age>=0&&age<=180000;metric(metrics,"チャット（"+windowLabel+"）",verified?row.chatCounts[seconds]:null,"件");if(priorChat)metric(metrics,"チャット前回（"+seconds+"秒）",row.chatCounts[seconds],"件");metrics.lastElementChild.title=verified?"公開履歴集計・"+new Date(row.sampledAt).toLocaleTimeString("ja-JP",{timeZone:"Asia/Tokyo"}):"直近の履歴範囲未確認";if(verified)metrics.lastElementChild.querySelector("dd").append(element("small","rank-sample-age","（"+Math.floor(age/1000)+"秒前）"));const activeAge=Date.now()-Date.parse(row.activeSampledAt),activeVerified=row.activePartial===false&&Number.isFinite(activeAge)&&activeAge>=0&&activeAge<=90000&&!stale;const activeSeconds=Number.isSafeInteger(row.activeWindowSeconds)&&row.activeWindowSeconds>0&&row.activeWindowSeconds<=600?row.activeWindowSeconds:600;metric(metrics,"アクティブ人数（"+(activeSeconds===600?"直近10分":activeSeconds+"秒")+"）",activeVerified?row.activeUsers:null,"人");if(!activeVerified&&row.activePartial===false&&numeric(row.activeUsers)&&activeAge>=0&&activeAge<=240000)metric(metrics,"アクティブ10分・前回",row.activeUsers,"人");metrics.lastElementChild.title=activeVerified?row.activeStage||"投稿者ID重複除外":"直近10分の履歴範囲未確認";const recentActive=!activeVerified&&!stale&&Number.isFinite(activeAge)&&activeAge>=0&&activeAge<=90000&&Number.isSafeInteger(row.activeRecentSeconds)&&row.activeRecentSeconds>0&&row.activeRecentSeconds<600&&numeric(row.activeRecentUsers);if(recentActive)metric(metrics,"アクティブ（"+(row.activeRecentSeconds%60===0?row.activeRecentSeconds/60+"分":row.activeRecentSeconds+"秒")+"実測）",row.activeRecentUsers,"人");if(!verified||(!activeVerified&&!recentActive))body.append(element("small","nico-stat-note",[!verified?row.chatStage||"チャット履歴確認待ち":"",!activeVerified?row.activeStage||"アクティブ10分履歴確認待ち":""].filter(Boolean).join(" ／ ")));metric(metrics,"KICKsギフト（24時間受信分）",row.kicksGift," KICKs");if(row.kicksGift==null&&row.kicksGiftRecordCount===0)metrics.lastElementChild.querySelector("dd").textContent=row.kicksGiftSubscriptionVerified?"受信なし":"購読未確認";metrics.lastElementChild.title=row.kicksGiftStage||"公式Webhook受信待ち";metric(metrics,"ギフトサブスク（有効数）",row.giftedSubscriptions,"件");metrics.lastElementChild.title=row.giftedSubscriptionsStage||"公式API取得待ち";if(numeric(row.giftedSubscriptionsReceived))metric(metrics,"ギフトサブスク（24時間受信分）",row.giftedSubscriptionsReceived,"件");if(row.kicksGift==null||row.giftedSubscriptions==null)body.append(element("small","nico-stat-note",[row.kicksGift==null?row.kicksGiftStage:"",row.giftedSubscriptions==null?row.giftedSubscriptionsStage:""].filter(Boolean).join(" ／ ")));}
   timing(metrics,row);for(const note of body.querySelectorAll(":scope > .nico-stat-note"))if(!note.textContent.trim())note.remove();body.prepend(top,metrics);li.append(rank,body);
   if(existing&&existing.querySelector(".rank-thumbbox")===thumb){
@@ -609,6 +611,7 @@ function showAutoCountdown(){
  if(node.textContent!==label)node.textContent=label;
 }
 async function autoRankTick(){
+ tickDurations();
  if(document.hidden||autoPaused){showAutoCountdown();return;}
  if(!liveSocketOpen()&&!autoFallbackRunning&&Date.now()>=autoNextAt){
   autoFallbackRunning=true;autoNextAt=Date.now()+AUTO_RANK_INTERVAL;showAutoCountdown();
