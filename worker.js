@@ -1520,7 +1520,7 @@ function parseAdminBasic(header,decode){
  if(!match)return null;
  try{const raw=decode(match[1]),colon=raw.indexOf(":");if(colon<0)return null;return {name:raw.slice(0,colon),password:raw.slice(colon+1)};}catch{return null;}
 }
-function adminSecretReady(value){return typeof value==="string"&&value.length>=24&&value.length<=256&&/^[!-~]+$/.test(value);}
+function adminSecretReady(value){return typeof value==="string"&&value.length>=12&&value.length<=256&&/^[!-~]+$/.test(value);}
 function equalDigest(a,b){if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];return diff===0;}
 async function kickAdminAuthorized(request,env){
  if(!adminSecretReady(env.KICK_ADMIN_PASSWORD)||new URL(request.url).protocol!=="https:")return false;
@@ -1560,7 +1560,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r64"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r65"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
