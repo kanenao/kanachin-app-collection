@@ -172,9 +172,10 @@ function nicoProviderKind(p={},raw={}){
  if(kinds.includes("user")||[s.pageUrl,s.url,s.userPageUrl].some(v=>typeof v==="string"&&/^https:\/\/(?:www\.)?nicovideo\.jp\/user\/\d+(?:[/?#]|$)/i.test(v)))return "user";
  return "";
 }
-function nicoBrandImage(value){
- return typeof value==="string"&&/(?:\/(?:usericon|user-icon|channelicon|channel-icon|profile|avatar|icons?)\/|\/nicochannel\/material\/design\/|\/channel\/(?:icon|logo)\/|\/comch\/channel-icon\/)/i.test(value);
+function nicoDefaultArtwork(value){
+ return typeof value==="string"&&/(?:^|[\/_-])(?:default|no[-_]?image|no[-_]?thumbnail|placeholder|dummy|fallback|initial|blank)(?:[\/_.?-]|$)|\/(?:usericon|user-icon|channelicon|channel-icon|profile|avatar|icons?)\/|\/nicochannel\/material\/design\/|\/channel\/(?:icon|logo)\/|\/comch\/channel-icon\//i.test(value);
 }
+function nicoBrandImage(value){return nicoDefaultArtwork(value);}
 function nicoPageMeta(html,key){
  for(const [tag] of String(html).matchAll(/<meta\b[^>]*>/gi)){
   const name=tag.match(/\s(?:property|name)\s*=\s*(["'])(.*?)\1/i)?.[2];
@@ -565,7 +566,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r56";
+const RANK_CACHE_REVISION="r57";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -596,6 +597,16 @@ function activityFields(bytes,repeated,collect){
   const key=Math.floor(tag/8);if(key===repeated)collect(value);result.set(key,value);
  }
  return result;
+}
+function activityIntervalsCover(intervals,from,to){
+ let covered=from;
+ for(const x of [...intervals].sort((a,b)=>a.start-b.start||b.end-a.end)){
+  if(!Number.isSafeInteger(x.start)||!Number.isSafeInteger(x.end)||x.end<=x.start)continue;
+  if(x.end<=covered)continue;
+  if(x.start>covered)return false;
+  covered=x.end;if(covered>=to)return true;
+ }
+ return covered>=to;
 }
 function historyReady(hasBackward,hasPrevious,hasNext,ended){return !!(hasBackward&&(hasPrevious||hasNext||ended)||hasPrevious&&(hasNext||ended));}
 function activityAggregate(events,end,coveredSince,startedAt=null,exhausted=false){
@@ -678,16 +689,55 @@ async function sampleNicoActivity(raw,startedAt){
    const start=Math.floor(Date.parse(startedAt)/1000),result=activityAggregate(events,sampleEnd,covered,Number.isSafeInteger(start)?start:null,exhausted);
    return {...result,activitySampleEnd:sampleEnd,activityStage:result.active10m!=null?"10分履歴取得済み":events.some(e=>e.at>sampleEnd-600&&e.at<=sampleEnd&&!e.sender)?"投稿者ID欠落":"10分履歴不足"};
   };
-  for await(const e of activityFrames(view,signal)){
-   if(e.has(2)){const entry=activityFields(e.get(2)),end=stamp(entry.get(1)),url=entry.has(2)?decode(activityFields(entry.get(2)).get(1)):null;
-    if(url&&end<=now+2&&end>=now-180)back={end,url};else historyStage="過去履歴URLまたは時刻未対応";}
-   if(e.has(3)){const info=activityFields(e.get(3)),start=stamp(info.get(1)),end=stamp(info.get(2)),url=decode(info.get(3));
-    if(url&&start<end&&end<=now&&end>=now-180)previous={start,end,url};}
-   if(historyReady(back,previous,e.has(4),false))return await readHistory();
-   if(e.has(4)&&!back&&!previous)return {activityStage:historyStage==="履歴接続中"?"過去履歴接続先未受信":historyStage};
+  // MessageStream supports both segment (field 1) and previous (field 3).
+  // When now supplies only a cursor/forward entries, request a bounded
+  // historical view using the same public view URI and numeric at.
+  const readView=async(at)=>{
+   const u=new URL(view.href);u.searchParams.set("at",String(at));
+   const segments=[];let next=null;
+   for await(const e of activityFrames(u,signal)){
+    if(e.has(2)){const entry=activityFields(e.get(2)),end=stamp(entry.get(1)),url=entry.has(2)?decode(activityFields(entry.get(2)).get(1)):null;
+     if(url&&end<=now+2&&end>=now-180)back={end,url};}
+    for(const field of [1,3])if(e.has(field)){
+     const info=activityFields(e.get(field)),start=stamp(info.get(1)),end=stamp(info.get(2)),url=decode(info.get(3));
+     if(url&&Number.isSafeInteger(start)&&Number.isSafeInteger(end)&&start<end&&end<=now&&end>=now-900){
+      segments.push({start,end,url});if(field===3&&end>=now-180)previous={start,end,url};
+     }
+    }
+    if(e.has(4)){next=Number(activityFields(e.get(4)).get(1));break;}
+    if(segments.length>=64)break;
+   }
+   return {segments,next};
+  };
+  const initial=await readView("now");
+  if(back){const result=await readHistory();if(result.active10m!=null)return result;}
+  // Discard partial backward samples before trying the ordinary segment route.
+  events=[];unknownTime=false;
+  historyStage="時刻指定履歴";
+  const targetEnd=now-10,targetStart=targetEnd-600,all=new Map(),cursors=new Set();
+  let cursor=targetStart;
+  for(let page=0;page<8;page++){
+   if(cursors.has(cursor))break;cursors.add(cursor);
+   const response=await readView(cursor);
+   for(const seg of response.segments)if(seg.end>targetStart&&seg.start<targetEnd)all.set(seg.url.href,seg);
+   if(activityIntervalsCover([...all.values()],targetStart,targetEnd))break;
+   if(!Number.isSafeInteger(response.next)||response.next<=cursor||response.next>now)break;
+   cursor=response.next;
   }
-  if(historyReady(back,previous,false,true))return await readHistory();
-  return {activityStage:"過去履歴接続先未受信"};
+  const intervals=[...all.values()].sort((a,b)=>a.start-b.start);
+  if(!activityIntervalsCover(intervals,targetStart,targetEnd))return {activityStage:intervals.length?"時刻指定履歴不足":"過去履歴接続先未受信"};
+  if(intervals.length>32)return {activityStage:"履歴セグメント上限"};
+  // Only count completed segments, never claim continuous coverage of missing intervals.
+  const completed=[];
+  for(let i=0;i<intervals.length;i+=3){
+   await Promise.all(intervals.slice(i,i+3).map(async seg=>{
+    for await(const chunk of activityFrames(seg.url,signal))record(chunk);
+    completed.push(seg);
+   }));
+  }
+  if(unknownTime||!activityIntervalsCover(completed,targetStart,targetEnd))return {activityStage:"履歴時刻または範囲不足"};
+  const result=activityAggregate(events,targetEnd,targetStart);
+  return {...result,activitySampleEnd:targetEnd,activityStage:result.active10m!=null?"10分履歴取得済み":"投稿者ID欠落"};
  }catch(e){return {activityStage:historyStage+"："+diagnostic(e)};}
 }
 function watchStartRequest(){return {type:"startWatching",data:{stream:{quality:"abr",protocol:"hls",latency:"low",chasePlay:false},room:{protocol:"webSocket",commentable:false},reconnect:false}};}
@@ -748,7 +798,8 @@ function publicNicoDetail(html,id){
    const stats=p.statistics??p.stats??data.statistics??{},v=contributionFromRecords(p,data),images=programThumbnailCandidates(p,data);
    const brand=new Set(imageCandidates(...nicoSupplierImageFields(p,data)).map(rankingImageUrl).filter(Boolean));
    const posters=nicoMetaImageValues(html,id,true).map(rankingImageUrl).filter(url=>url&&!brand.has(url)&&!nicoBrandImage(url));
-   const programThumbnails=[...new Set([...nicoProgramThumbnails(p,data),...posters])].slice(0,9);
+   const screenshotThumbnails=imageCandidates(p.screenshot?.urlSet,p.screenshot?.urls,p.screenshot,p.thumbnail?.screenshot).map(rankingImageUrl).filter(url=>url&&!brand.has(url)&&!nicoBrandImage(url));
+   const programThumbnails=[...new Set([...screenshotThumbnails,...nicoProgramThumbnails(p,data),...posters])].slice(0,9);
    return {channelOwner:nicoChannelOwner(p,data),providerKind:nicoProviderKind(p,data),programThumbnails,profileUrl:nicoProfile(p),historyOwner:nicoOwnerForHistory(p),name:clean(p.supplier?.name??p.programProvider?.name,80),advertising:v.advertising,gift:v.gift,visitors:count(stats.watchCount??stats.visitorCount??stats.viewers??stats.viewCount??p.watchCount),comments:count(stats.commentCount??stats.comments??p.commentCount),startedAt:time(p.schedule?.beginTime??p.beginTime??p.beginAt),thumbnailUrl:images[0]||"",thumbnailCandidates:images,statisticsEndpoint:statisticsEndpoint(data,id)};
   }catch{}
  }
@@ -760,7 +811,7 @@ async function enrichPublicNico(rows,origin){
  const missing=[];
  function apply(row,detail){if(!detail)return;for(const k of ["name","profileUrl","historyOwner","channelOwner","providerKind","advertising","gift","visitors","comments","startedAt","thumbnailUrl","active10m","active60s","activitySampleEnd"])if((row[k]==null||row[k]==="")&&detail[k]!=null&&detail[k]!=="")row[k]=detail[k];row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),...(detail.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);row.programThumbnails=[...new Set([...(detail.programThumbnails||[]),...(row.programThumbnails||[])])].slice(0,8);}
  const rotation=Math.floor(Date.now()/10000)%10;const ordered=[...candidates].sort((a,b)=>((rows.indexOf(a)-rotation+10)%10)-((rows.indexOf(b)-rotation+10)%10));
- for(const row of ordered){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r56");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
+ for(const row of ordered){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r57");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
  await Promise.all(missing.slice(0,3).map(async({row,key})=>{
   let detail=null;
   try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail)delete detail.statisticsEndpoint;}catch{}
@@ -1060,7 +1111,7 @@ async function resolveThumbnailCandidates(type,id,rows){
    })():Promise.resolve([]);
    const listingPromise=Promise.all(["NCF","NCU"].map(async section=>{try{const listing=await fetchBounded("https://www.chikuwachan.com/live/"+section+"/",{headers:{accept:"text/html"}},6*1024*1024);return nicoListingImageMap(listing).get(id)||[];}catch{return [];}})).then(values=>[...new Set(values.flat())]);
    const [history,listing]=await Promise.all([historyPromise,listingPromise]);
-   return [...new Set([...programImages,...listing,...history,...fromRank.filter(v=>exactProgramImage(v,id))].filter(v=>!nicoBrandImage(v)).map(v=>validatedThumb(v,"nico")).filter(Boolean))];
+   return [...new Set([...listing,...programImages,...history,...fromRank.filter(v=>exactProgramImage(v,id))].filter(v=>!nicoBrandImage(v)).map(v=>validatedThumb(v,"nico")).filter(Boolean))];
   }
   const detailImages=imageCandidates(...(detail?.thumbnailCandidates||[]),detail?.thumbnailUrl);
   const profileOwner=String(known?.profileUrl||"").match(/^https:\/\/www\.nicovideo\.jp\/user\/([1-9]\d{0,14})$/)?.[1];
@@ -1161,8 +1212,8 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r56":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
- const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r56/"+id);
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r57":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
+ const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r57/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
@@ -1183,7 +1234,7 @@ async function liveThumbnail(request){
  // Prefer already observed program images; resolve from fixed public endpoints if unavailable.
  let attempted=new Set(),workingSource="";
  async function tryImages(images,verified=false){
-  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:9))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
+  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||(type==="nico"&&nicoBrandImage(candidate))||attempted.has(candidate)||attempted.size>=(type==="nico"?6:9))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
  }
  const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!known.channelOwner&&!!known.profileUrl));
  const initial=type==="nico"&&!isNicoUser?(known.programThumbnails||[]).filter(v=>!nicoBrandImage(v)):rankImages;
@@ -1218,7 +1269,7 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r56/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r57/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
   const fields=statisticsFields(row);
@@ -1259,7 +1310,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r56",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r57",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
