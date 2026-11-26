@@ -13,6 +13,7 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.app{background:white;border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;min-width:0}.app[hidden]{display:none}.app-head{display:flex;gap:13px;align-items:center}.logo{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#e6efff;color:#174b9e;font-size:23px;font-weight:850;flex-shrink:0}.kick .logo{background:#e2f9df;color:#246722}.app h3{font-size:19px;line-height:1.35;margin:0;overflow-wrap:anywhere}.category{color:var(--muted);font-size:12px}.desc{color:var(--muted);flex:0 0 auto;margin:12px 0}.versions{border-top:1px solid var(--line);padding:12px 0 0;margin:0 0 12px}.version-row{display:grid;grid-template-columns:85px minmax(0,1fr);gap:7px;align-items:baseline;margin:5px 0;font-size:13px}.version-row dt{font-weight:650;color:var(--muted)}.version-row dd{margin:0;overflow-wrap:anywhere}.version-row a{font-weight:700}.buttons{display:flex;gap:10px;flex-wrap:wrap}.buttons a{border:1px solid #c8d6e6;padding:9px 13px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:700}.buttons .primary{background:var(--accent);border-color:var(--accent);color:white}.roadmap{margin:28px 0;background:white;border:1px solid var(--line);border-radius:16px;padding:22px}.roadmap ul{margin:8px 0 0;padding-left:22px}.roadmap li{margin:5px 0}footer{border-top:1px solid var(--line);padding:20px 0;color:var(--muted);font-size:13px}.status{min-height:1.6em;font-size:13px;color:var(--muted);margin:6px 0 12px}
 @media(max-width:650px){.grid{grid-template-columns:1fr}.hero{margin-top:16px}.top{gap:8px}.app{padding:17px}}
 .version-row{padding:9px 0;border-bottom:1px solid var(--line)}.version-row[hidden]{display:none}.release-date,.change-label{display:block;color:var(--muted);font-size:12px;margin-top:3px}.change-label{font-weight:700;margin-top:7px}.release-changes{margin:3px 0 0;padding-left:17px;font-size:13px;line-height:1.5}.release-changes li{margin:2px 0}
+.grid{align-items:start;grid-auto-rows:max-content}.app{height:auto;min-height:0;align-self:start;justify-content:flex-start;display:block}.app[hidden]{display:none}.desc{margin:10px 0;min-height:0}.versions{margin-top:0}.version-row{margin-top:0}
 </style>
 </head>
 <body>
@@ -30,7 +31,7 @@ header{background:var(--paper);border-bottom:1px solid var(--line)}.top{min-heig
 </div><p id="empty" hidden>該当するアプリがありません。</p></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>ニコニコ生放送・Kick リアルタイムランキング</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.26-r3 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
