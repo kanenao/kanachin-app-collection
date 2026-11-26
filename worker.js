@@ -514,7 +514,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r47";
+const RANK_CACHE_REVISION="r48";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -893,9 +893,25 @@ function kickFramePath(host,path){
  return (host==="images.kick.com"&&/^\/video_thumbnails\/[a-z0-9_-]+\/[a-z0-9_-]+\/[^/]+\.(?:webp|jpe?g|png)$/i.test(path))||
  (["stream.kick.com","files.kick.com","kick-prod-videos-30-day.s3.us-west-2.amazonaws.com"].includes(host)&&/^\/thumbnails\/livestream\/[^/]+\/[^/]+\/video_thumbnail\/.+\.(?:webp|jpe?g|png)$/i.test(path));
 }
+function kickLivePayload(payload,id,livestreamRoute){
+ if(!payload||typeof payload!=="object"||Array.isArray(payload))return null;
+ const root=payload.data&&typeof payload.data==="object"&&!Array.isArray(payload.data)?payload.data:payload;
+ const candidates=[payload.slug,root.slug,payload.channel?.slug,root.channel?.slug].filter(v=>typeof v==="string");
+ if(candidates.some(v=>v.toLowerCase()!==id)||root.is_live===false||payload.is_live===false)return null;
+ let live=root.livestream??root.stream??payload.livestream??payload.stream;
+ if(!live&&livestreamRoute&&!("livestream" in root)&&!("stream" in root)&&!("livestream" in payload)&&!("stream" in payload))live=root;
+ if(!live||typeof live!=="object"||Array.isArray(live)||live.is_live===false)return null;
+ if([live.slug,live.channel?.slug].some(v=>typeof v==="string"&&v.toLowerCase()!==id))return null;
+ return live;
+}
+function kickOrderedThumbnailFields(live){
+ if(!live||typeof live!=="object"||live.is_live===false)return [];
+ const thumb=live.thumbnail;
+ return [...new Set([thumb?.url,thumb?.src,live.thumbnail_url,typeof thumb==="string"?thumb:null,live.thumbnailUrl,thumb?.link].filter(v=>typeof v==="string"&&v.trim()).map(v=>v.trim().replaceAll("&amp;","&")))];
+}
 function kickFrameCandidates(live){
  if(!live||typeof live!=="object"||live.is_live===false)return [];
- const values=[];
+ const values=kickOrderedThumbnailFields(live);
  for(const v of [live.thumbnail,live.thumbnail_url,live.thumbnailUrl]){
   if(typeof v==="string")values.push(v);
   else if(v&&typeof v==="object"){
@@ -960,20 +976,19 @@ async function resolveThumbnailCandidates(type,id,rows){
    }
   }
   return [...new Set([...historyImages,...programImages,...detailImages,...fromRank,poster].filter(v=>!nicoBrandImage(v)).map(v=>validatedThumb(v,"nico")).filter(Boolean))];
- }else{
-  for(const suffix of ["/livestream",""]){
-   try{const payload=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(id)+suffix,{headers:{accept:"application/json"}},1024*1024));
-    if(payload.slug&&String(payload.slug).toLowerCase()!==id)continue;
-    const live=payload.livestream??payload.data?.livestream??payload.data??(suffix?payload:null);
-    if(!live||live.is_live===false)continue;
-    if([live.slug,live.channel?.slug,payload.channel?.slug].some(x=>typeof x==="string"&&x.toLowerCase()!==id))continue;
-    const liveStart=time(live.start_time??live.started_at??live.created_at),knownStart=time(known?.startedAt);if(liveStart&&knownStart&&Math.abs(Date.parse(liveStart)-Date.parse(knownStart))>60000)continue;
-    const candidates=kickFrameCandidates(live);
-    if(candidates.some(v=>kickProxyImage(v)||validatedThumb(v,type)))return [...new Set(candidates.map(v=>kickProxyImage(v)||validatedThumb(v,type)).filter(Boolean))];
-   }catch{}
-  }
  }
+
  return type==="kick"?fromRank.map(v=>validatedThumb(v,"kick")).filter(Boolean):fromRank;
+}
+async function kickEndpointImages(id,known,suffix){
+ try{
+  const payload=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(id)+suffix,{headers:{accept:"application/json"}},1024*1024));
+  const live=kickLivePayload(payload,id,suffix==="/livestream");
+  if(!live)return [];
+  const started=time(live.start_time??live.started_at??live.created_at),expected=time(known?.startedAt);
+  if(started&&expected&&Math.abs(Date.parse(started)-Date.parse(expected))>60000)return [];
+  return kickFrameCandidates(live).map(v=>kickProxyImage(v)||validatedThumb(v,"kick")).filter(Boolean);
+ }catch{return [];}
 }
 async function thumbnailResponse(raw,type,preview=false,verified=false){
  const validate=value=>validatedThumb(value,type)||(type==="kick"&&verified?kickProxyImage(value):"");
@@ -993,7 +1008,7 @@ async function thumbnailResponse(raw,type,preview=false,verified=false){
   try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152){await reader.cancel();return null;}chunks.push(value);}}finally{reader.releaseLock();}
   if(!total)return null;
   const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":preview?"public, max-age=3":"public, max-age=30","x-content-type-options":"nosniff"}});
+  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":preview?"public, max-age=3":type==="kick"?"public, max-age=90":"public, max-age=30","x-content-type-options":"nosniff"}});
  }catch{return null;}
 }
 async function liveThumbnail(request){
@@ -1001,7 +1016,7 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r37")+"/"+type+"/"+id+(preview?"/preview":""));
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r48")+"/"+type+"/"+id+(preview?"/preview":""));
  const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r47/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
@@ -1023,12 +1038,18 @@ async function liveThumbnail(request){
  // Prefer already observed program images; resolve from fixed public endpoints if unavailable.
  let attempted=new Set(),workingSource="";
  async function tryImages(images,verified=false){
-  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:4))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
+  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:7))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
  }
  const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!!known.profileUrl));
  const initial=type==="nico"&&!isNicoUser?(known.programThumbnails||[]).filter(v=>!nicoBrandImage(v)):rankImages;
- let result=await tryImages(initial.slice(0,3),type==="kick"&&known.thumbnailVerified===true);
- if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows),type==="kick");
+ let result=await tryImages(initial.slice(0,type==="kick"?2:3),type==="kick"&&known.thumbnailVerified===true);
+ if(!result&&type==="kick"){
+  for(const suffix of ["/livestream",""]){
+   result=await tryImages((await kickEndpointImages(id,known,suffix)).slice(0,2),true);
+   if(result)break;
+  }
+  if(!result)result=await tryImages(rankImages,type==="kick"&&known.thumbnailVerified===true);
+ }else if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows),false);
  if(!result)result=new Response(null,{status:404,headers:{"cache-control":"public, max-age=25"}});
  if(type==="nico"&&workingSource){try{await caches.default.put(sourceKey,json({url:workingSource},200,"public, max-age=120"));}catch{}}
  try{await caches.default.put(key,result.clone());}catch{}
@@ -1089,7 +1110,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r47",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r48",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
