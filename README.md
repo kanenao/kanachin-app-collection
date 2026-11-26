@@ -62,3 +62,4 @@
 2. Kick Developerで既存アプリのWebhookを有効にし、公開先の /api/kick-gift-events を指定。既存のKICK_CLIENT_ID / KICK_CLIENT_SECRETはWorker Secretsに設定する（チャットやREADMEに貼らない）。
 3. 公式イベント購読APIで対象配信者の kicks.gifted と channel.subscription.gifts (version 1) を登録し、取得したsubscription_idをカンマ区切りで KICK_GIFT_SUBSCRIPTION_IDS としてWorkerに設定。自動購読作成や外部設定変更は行わない。公式仕様: https://github.com/KickEngineering/KickDevDocs/blob/main/events/introduction.md と https://github.com/KickEngineering/KickDevDocs/blob/main/events/webhook-security.md 。
 4. 公式イベント受信後、ランキングに24時間受信分が反映される。受信開始前やイベント欠落分の復元はできない。古い行は次回受信時に削除される（定期削除は未設定）。公式APIの有効ギフトサブスク数とは別指標。
+- r63: メニューにKick API接続を追加。固定公式エンドポイントを使うサーバー側接続確認（OAuth、配信一覧、ギフトサブスク項目、任意D1テーブル）とSecret設定有無、Webhook購読ID有無を表示。認証値は公開UIで受け付けずCloudflare管理画面のSecretで登録。結果のみ最大60秒エッジキャッシュ。公式Webhookの実受信は別確認。ニコ生・ランキング・ギフト集計の既存処理を維持。実認証は未設定の場合は実行されない。本番動作未確認。
