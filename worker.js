@@ -475,18 +475,85 @@ async function kickRanking(env){
  const result=kickPage(JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}})));rows.push(...result.entries);excluded+=result.excluded;cursor=result.cursor;if(!cursor){complete=result.complete;break;}if(seen.has(cursor))break;seen.add(cursor);}
  return {source:"Kick公式API",sourceUrl:"https://kick.com/",complete:complete&&excluded===0,metric:"日本語配信・同時視聴者数順",fetchedAt:new Date().toISOString(),entries:rankKick(rows)};
 }
+function recentKickSample(payload,roomId,startedAt,now){
+ const messages=payload?.data?.messages;
+ if(!Array.isArray(messages)||!Number.isFinite(startedAt)||startedAt>now||messages.length>1000)return null;
+ const ids=new Set(),senders=new Set();let missingSender=false;
+ for(const msg of messages){
+  if(!msg||String(msg.chatroom_id)!==String(roomId))continue;
+  const t=Date.parse(msg.created_at);if(!Number.isFinite(t)||t<Math.max(startedAt,now-600000)||t>now)continue;
+  if(!["message","reply"].includes(msg.type)||typeof msg.id!=="string"||!msg.id||ids.has(msg.id))continue;
+  ids.add(msg.id);if(Number.isSafeInteger(msg.sender?.id)&&msg.sender.id>0)senders.add(msg.sender.id);else missingSender=true;
+ }
+ return {receivedComments:ids.size,activeUsers:missingSender?null:senders.size,sampledAt:new Date(now).toISOString()};
+}
+function kickGiftedSubs(payload,slug){
+ const rows=payload?.data;if(!Array.isArray(rows))return null;
+ const row=rows.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===slug&&x.stream?.is_live===true);
+ const n=row?.active_gifted_subscribers_count;return Number.isSafeInteger(n)&&n>=0?n:null;
+}
+async function enrichKickPublicMetrics(data,origin,env){
+ if(!Array.isArray(data.entries)||!data.entries.length)return data;
+ const rows=data.entries.slice(0,10);
+ for(const row of rows){row.receivedComments=null;row.activeUsers=null;row.kicksGift=null;row.giftedSubscriptions=null;}
+ // Official channel-level active gifted subscriptions are not gifts during this stream.
+ // Batch top ten only; cache channel totals for two minutes.
+ if(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET){
+  try{
+   const key=new Request(origin+"/__cache/kick-channels-r23/"+rows.map(r=>r.id).sort().join(","));
+   const cached=await caches.default.match(key);let payload;
+   if(cached)payload=await cached.json();
+   else{
+    const access=await kickToken(env),url=new URL("https://api.kick.com/public/v1/channels");
+    for(const row of rows)if(/^[a-z0-9_-]{1,40}$/.test(row.id))url.searchParams.append("slug",row.id);
+    const response=JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}},1024*1024));
+    // Cache only the public aggregate fields, never account tokens or other metadata.
+    payload={data:(Array.isArray(response.data)?response.data:[]).map(x=>({slug:x.slug,stream:{is_live:x.stream?.is_live},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
+    try{await caches.default.put(key,json(payload,200,"public, max-age=120"));}catch{}
+   }
+   for(const row of rows)row.giftedSubscriptions=kickGiftedSubs(payload,row.id);
+  }catch{}
+ }
+ // Recent public chat snapshots only: no WebSocket, webhook, user records, or chat archive.
+ const missing=[];
+ for(const row of rows){
+  if(!/^[a-z0-9_-]{1,40}$/.test(row.id))continue;
+  const key=new Request(origin+"/__cache/kick-sample-r23/"+row.id);
+  try{const saved=await caches.default.match(key);if(saved){const s=await saved.json();if(s&&s.startedAt&&(!row.startedAt||Date.parse(row.startedAt)===Date.parse(s.startedAt))){Object.assign(row,s);continue;}if(s===null)continue;}}catch{}
+  missing.push({row,key});
+ }
+ // Bound each refresh to two channels; reuse aggregates for 120 seconds.
+ await Promise.all(missing.slice(0,2).map(async({row,key})=>{
+  let result=null;
+  try{
+   const channel=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+encodeURIComponent(row.id),{headers:{accept:"application/json"}},1024*1024));
+   const channelId=channel?.id,room=channel?.chatroom?.id,live=channel?.livestream;
+   if(typeof channel.slug!=="string"||channel.slug.toLowerCase()!==row.id||!Number.isSafeInteger(channelId)||channelId<=0||!Number.isSafeInteger(room)||room<=0||!live||live.is_live!==true)throw Error("channel not verified live");
+   const start=time(live.start_time??live.created_at??live.started_at),ts=Date.parse(start);
+   if(!Number.isFinite(ts)||(row.startedAt&&Date.parse(row.startedAt)!==ts))throw Error("stream identity mismatch");
+   const payload=JSON.parse(await fetchBounded("https://kick.com/api/v2/channels/"+channelId+"/messages",{headers:{accept:"application/json"}},1024*1024));
+   const sample=recentKickSample(payload,room,ts,Date.now());
+   if(sample)result={...sample,startedAt:start};
+   if(result)Object.assign(row,result);
+  }catch{}
+  try{await caches.default.put(key,json(result,200,"public, max-age=120"));}catch{}
+ }));
+ return {...data,entries:rows};
+}
+
 function json(value,status=200,cache="no-store"){return new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":cache,"x-content-type-options":"nosniff"}});}
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r22",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r23",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r22"),backup=new Request(url.origin+url.pathname+"?last-good=r22");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r23"),backup=new Request(url.origin+url.pathname+"?last-good=r23");
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
-  const data=type==="nico"?await nicoRanking(url.origin):await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
+  let data=type==="nico"?await nicoRanking(url.origin):await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
+  if(type==="kick"&&(!data.status||data.status==="ok"))data=await enrichKickPublicMetrics(data,url.origin,env);
   const ok=!data.status||data.status==="ok";
   if(!ok){const previous=await previousRanking();if(previous)return previous;}
   const response=json(ok?{status:"ok",...data}:data,data.status==="error"?502:200,ok?"public, max-age=10":"no-store");
