@@ -37,8 +37,41 @@ function nicoListingThumbnail(value,id){
  if(typeof value!=="string"||!/^lv\d{5,15}$/.test(id))return "";
  try{const u=new URL(value.replaceAll("&amp;","&"),"https://www.chikuwachan.com/live/NCU/");if(u.origin!=="https://www.chikuwachan.com"||u.username||u.password||u.hash||!u.pathname.startsWith("/live/")||!/\.(?:jpe?g|png|webp)$/i.test(u.pathname)||/(?:usericon|user-icon|avatar|profile|badge|logo|\/icons?\/)/i.test(u.pathname))return "";const match=u.pathname.match(/(?:^|[^a-z0-9])(lv\d{5,15})(?![a-z0-9])/i);return match?.[1].toLowerCase()===id?u.href:"";}catch{return "";}
 }
+function exactWatchImageGroups(html){
+ const result=new Map(),safe=String(html||"").replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->/gi,"");
+ const attr=(tag,key)=>tag.match(new RegExp("(?:^|\\s)"+key+"\\s*=\\s*([\"'])([\\s\\S]*?)\\1","i"))?.[2]?.replace(/&amp;/g,"&")||"";
+ for(const a of safe.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){
+  const id=/^(?:https:\/\/live\.nicovideo\.jp)?\/watch\/(lv\d{5,15})\/?(?:[?#][^\s]*)?$/i.exec(attr(a[1],"href"))?.[1]?.toLowerCase();if(!id)continue;
+  const found=[];
+  for(const [tag] of a[2].matchAll(/<img\b[^>]*>/gi)){
+   if(/(?:user[-_ ]?icon|channel[-_ ]?icon|avatar|profile|badge|logo|アイコン|site_NC[UF]|cross\.png)/i.test(tag))continue;
+   const images=["data-src","data-original","data-lazy-src","src"].map(k=>attr(tag,k)).filter(Boolean);
+   if(images.length)found.push(images);
+  }
+  // A single image element in a matching watch link, not neighboring card art.
+  if(found.length!==1)continue;
+  const list=result.get(id)||[];
+  for(const raw of found[0])if(raw.length<=2048&&!list.includes(raw)&&list.length<6)list.push(raw);
+  if(list.length)result.set(id,list);
+ }
+ return result;
+}
+function nicoWatchLinkImages(html,id,base){
+ const values=exactWatchImageGroups(html).get(id)||[];
+ return [...new Set(values.map(raw=>{
+  const listing=nicoListingThumbnail(raw,id);if(listing)return listing;
+  const value=rankingImageUrl(raw);
+  if(!value||nicoBrandImage(value))return "";
+  const u=new URL(value);
+  // CDN artwork attached to the exact program link can have an opaque URL.
+  if(!(/(?:^|\.)(?:nimg|simg)\.jp$/i.test(u.hostname)||u.hostname.endsWith(".nicovideo.jp")))return "";
+  if(!/\.(?:jpe?g|png|webp|gif|avif)$/i.test(u.pathname)&&!/(?:screenshot|thumbnail|liveimg|live[-_]thumb)/i.test(u.pathname))return "";
+  return validatedThumb(value,"nico");
+ }).filter(Boolean))].slice(0,6);
+}
 function nicoListingImageMap(html){
  const images=new Map();
+ for(const id of exactWatchImageGroups(html).keys()){const list=nicoWatchLinkImages(html,id);if(list.length)images.set(id,list);}
  for(const [tag] of String(html).matchAll(/<img\b[^>]*>/gi)){
   if(/(?:user[-_ ]?icon|avatar|profile|badge|logo|アイコン)/i.test(tag))continue;
   for(const key of ["data-src","data-original","data-lazy-src","src"]){
@@ -336,6 +369,7 @@ function unique(rows) {
     // Never combine user identity or artwork across conflicting identities.
     const conflict=old.broadcasterId&&row.broadcasterId&&old.broadcasterId!==row.broadcasterId;
     old.thumbnailCandidates=[...new Set([...(old.thumbnailCandidates||[]),old.thumbnailUrl,...(row.thumbnailCandidates||[]),row.thumbnailUrl].filter(Boolean))].slice(0,8);
+    old.programThumbnails=[...new Set([...(old.programThumbnails||[]),...(row.programThumbnails||[])])].slice(0,8);
     for(const field of ["startedAt","thumbnailUrl","visitors","comments","advertising","gift","active10m","duration"]){
       if((old[field]==null||old[field]==="")&&row[field]!=null&&row[field]!=="")old[field]=row[field];
     }
@@ -383,10 +417,10 @@ function parseRankingPage(html) {
       return url&&!/\/(?:usericon|user-icon|icons?)\//i.test(new URL(url).pathname)?[url]:[];
     });
     const thumbnailUrl=[...new Set(imageUrls)].length===1?imageUrls[0]:"";
-    if(existing){if(!existing.thumbnailUrl&&thumbnailUrl)existing.thumbnailUrl=thumbnailUrl;if(thumbnailUrl&&exactProgramImage(thumbnailUrl,id)&&!nicoBrandImage(thumbnailUrl))existing.programThumbnails=[...new Set([...(existing.programThumbnails||[]),thumbnailUrl])].slice(0,8);continue;}
+    if(existing){if(!existing.thumbnailUrl&&thumbnailUrl)existing.thumbnailUrl=thumbnailUrl;const verified=nicoWatchLinkImages(a[0],id);if(verified.length)existing.programThumbnails=[...new Set([...(existing.programThumbnails||[]),...verified])].slice(0,8);continue;}
     const title=clean(a[1].match(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/i)?.[2]||a[2]);
     if(!title||/^(視聴|見る|開く|放送ページ|LIVE|lv\d+)$/i.test(title))continue;
-    rows.push({liveId:id,title,name:"",broadcasterId:"",startedAt:"",iconUrl:"",thumbnailUrl,programThumbnails:thumbnailUrl&&exactProgramImage(thumbnailUrl,id)&&!nicoBrandImage(thumbnailUrl)?[thumbnailUrl]:[],visitors:null,comments:null});
+    rows.push({liveId:id,title,name:"",broadcasterId:"",startedAt:"",iconUrl:"",thumbnailUrl,programThumbnails:nicoWatchLinkImages(a[0],id),visitors:null,comments:null});
   }
   return structured||unique(rows);
 }
@@ -530,7 +564,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r54";
+const RANK_CACHE_REVISION="r55";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -714,7 +748,7 @@ async function enrichPublicNico(rows,origin){
  const missing=[];
  function apply(row,detail){if(!detail)return;for(const k of ["name","profileUrl","historyOwner","channelOwner","providerKind","advertising","gift","visitors","comments","startedAt","thumbnailUrl","active10m","active60s","activitySampleEnd"])if((row[k]==null||row[k]==="")&&detail[k]!=null&&detail[k]!=="")row[k]=detail[k];row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),...(detail.thumbnailCandidates||[])].filter(Boolean))].slice(0,8);row.programThumbnails=[...new Set([...(detail.programThumbnails||[]),...(row.programThumbnails||[])])].slice(0,8);}
  const rotation=Math.floor(Date.now()/10000)%10;const ordered=[...candidates].sort((a,b)=>((rows.indexOf(a)-rotation+10)%10)-((rows.indexOf(b)-rotation+10)%10));
- for(const row of ordered){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r47");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
+ for(const row of ordered){const key=new Request(origin+"/__cache/nico-detail/"+row.liveId+"?r55");try{const cached=await caches.default.match(key);if(cached){apply(row,await cached.json());continue;}}catch{}missing.push({row,key});}
  await Promise.all(missing.slice(0,3).map(async({row,key})=>{
   let detail=null;
   try{detail=publicNicoDetail(await fetchBounded("https://live.nicovideo.jp/watch/"+row.liveId,{headers:{accept:"text/html"}}),row.liveId);if(detail)delete detail.statisticsEndpoint;}catch{}
@@ -1012,9 +1046,9 @@ async function resolveThumbnailCandidates(type,id,rows){
     const query="https://live.nicovideo.jp/front/api/v1/user-broadcast-history?providerType=channel&isIncludeNonPublic=false&offset=0&limit=10&providerId="+owner;
     try{const payload=JSON.parse(await fetchBounded(query,{headers:{accept:"application/json"}},2*1024*1024));return imageCandidates(...nicoHistoryImageItems(payload,id));}catch{return [];}
    })():Promise.resolve([]);
-   const listingPromise=(async()=>{try{const listing=await fetchBounded("https://www.chikuwachan.com/live/NCU/",{headers:{accept:"text/html"}},6*1024*1024);return nicoListingImageMap(listing).get(id)||[];}catch{return [];}})();
+   const listingPromise=Promise.all(["NCF","NCU"].map(async section=>{try{const listing=await fetchBounded("https://www.chikuwachan.com/live/"+section+"/",{headers:{accept:"text/html"}},6*1024*1024);return nicoListingImageMap(listing).get(id)||[];}catch{return [];}})).then(values=>[...new Set(values.flat())]);
    const [history,listing]=await Promise.all([historyPromise,listingPromise]);
-   return [...new Set([...history,...programImages,...listing,...fromRank.filter(v=>exactProgramImage(v,id))].filter(v=>!nicoBrandImage(v)).map(v=>validatedThumb(v,"nico")).filter(Boolean))];
+   return [...new Set([...programImages,...listing,...history,...fromRank.filter(v=>exactProgramImage(v,id))].filter(v=>!nicoBrandImage(v)).map(v=>validatedThumb(v,"nico")).filter(Boolean))];
   }
   const detailImages=imageCandidates(...(detail?.thumbnailCandidates||[]),detail?.thumbnailUrl);
   const profileOwner=String(known?.profileUrl||"").match(/^https:\/\/www\.nicovideo\.jp\/user\/([1-9]\d{0,14})$/)?.[1];
@@ -1096,7 +1130,7 @@ async function thumbnailResponse(raw,type,preview=false,verified=false){
  try{
   let response;
   for(let i=0;i<3;i++){
-   response=await fetch(url,{signal,redirect:"manual",...(preview?{cache:"no-store"}:{}),headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?"https://live.nicovideo.jp/":"https://kick.com/"}});
+   response=await fetch(url,{signal,redirect:"manual",...(preview?{cache:"no-store"}:{}),headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?(new URL(url).hostname==="www.chikuwachan.com"?"https://www.chikuwachan.com/live/":"https://live.nicovideo.jp/"):"https://kick.com/"}});
    if(![301,302,303,307,308].includes(response.status))break;
    const location=response.headers.get("location");if(response.body)await response.body.cancel();if(!location)return null;
    url=validate(new URL(location,url).href);if(!url)return null;
@@ -1115,8 +1149,8 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r47":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
- const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r47/"+id);
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r55":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
+ const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r55/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
@@ -1139,7 +1173,7 @@ async function liveThumbnail(request){
  async function tryImages(images,verified=false){
   for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:9))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
  }
- const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!!known.profileUrl));
+ const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!known.channelOwner&&!!known.profileUrl));
  const initial=type==="nico"&&!isNicoUser?(known.programThumbnails||[]).filter(v=>!nicoBrandImage(v)):rankImages;
  let result=await tryImages(initial.slice(0,type==="kick"?2:3),type==="kick"&&known.thumbnailVerified===true);
  if(!result&&type==="kick")result=await tryImages((await kickChikuwaImages(url.origin,id)).slice(0,2),true);
@@ -1211,7 +1245,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r54",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r55",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
