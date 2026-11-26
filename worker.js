@@ -1514,33 +1514,91 @@ async function kickConnectionProbe(env,getToken,readApi,clock){
  out.checkedAt=clock();
  return out;
 }
-function parseAdminBasic(header,decode){
- if(typeof header!=="string"||header.length>2048)return null;
- const match=/^Basic ([A-Za-z0-9+/]+={0,2})$/i.exec(header);
- if(!match)return null;
- try{const raw=decode(match[1]),colon=raw.indexOf(":");if(colon<0)return null;return {name:raw.slice(0,colon),password:raw.slice(colon+1)};}catch{return null;}
+function adminSessionParts(value,now){
+ if(typeof value!=="string"||value.length>150)return null;
+ const m=/^(\d{10})\.([a-f0-9]{32})\.([a-f0-9]{64})$/.exec(value);
+ if(!m)return null;
+ const expiry=Number(m[1]);
+ if(expiry<=now||expiry>now+3600)return null;
+ return {message:m[1]+"."+m[2],signature:m[3]};
+}
+function adminCookieValue(raw){
+ if(typeof raw!=="string"||raw.length>8192)return "";
+ const values=raw.split(";").map(s=>s.trim()).filter(s=>s.startsWith("__Host-kick_admin="));
+ return values.length===1?values[0].slice("__Host-kick_admin=".length):"";
 }
 function adminSecretReady(value){return typeof value==="string"&&value.length>=12&&value.length<=256&&/^[!-~]+$/.test(value);}
 function equalDigest(a,b){if(a.length!==b.length)return false;let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];return diff===0;}
+const ADMIN_COOKIE="__Host-kick_admin";
+const ADMIN_COOKIE_FLAGS="; Path=/; Secure; HttpOnly; SameSite=Strict";
+function adminHex(bytes){return Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,"0")).join("");}
+async function adminSign(message,secret){
+ const encoder=new TextEncoder();
+ const key=await crypto.subtle.importKey("raw",encoder.encode("kick-admin-session-v1:"+secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+ return adminHex(await crypto.subtle.sign("HMAC",key,encoder.encode(message)));
+}
 async function kickAdminAuthorized(request,env){
  if(!adminSecretReady(env.KICK_ADMIN_PASSWORD)||new URL(request.url).protocol!=="https:")return false;
- const auth=parseAdminBasic(request.headers.get("authorization"),atob);
- if(!auth||auth.name!=="admin")return false;
+ const session=adminSessionParts(adminCookieValue(request.headers.get("cookie")),Math.floor(Date.now()/1000));
+ if(!session)return false;
+ const expected=await adminSign(session.message,env.KICK_ADMIN_PASSWORD);
  const encoder=new TextEncoder();
- const a=new Uint8Array(await crypto.subtle.digest("SHA-256",encoder.encode(auth.password)));
- const b=new Uint8Array(await crypto.subtle.digest("SHA-256",encoder.encode(env.KICK_ADMIN_PASSWORD)));
+ return equalDigest(encoder.encode(expected),encoder.encode(session.signature));
+}
+async function adminPasswordMatches(password,secret){
+ if(!password)return false;
+ const encoder=new TextEncoder();
+ const a=new Uint8Array(await crypto.subtle.digest("SHA-256",encoder.encode(password)));
+ const b=new Uint8Array(await crypto.subtle.digest("SHA-256",encoder.encode(secret)));
  return equalDigest(a,b);
+}
+async function adminReadForm(request){
+ if(!/^application\/x-www-form-urlencoded(?:;|$)/i.test(request.headers.get("content-type")||"")||Number(request.headers.get("content-length")||0)>2048||!request.body)return null;
+ const reader=request.body.getReader(),decoder=new TextDecoder();let n=0,text="";
+ try{while(true){const {done,value}=await reader.read();if(done)break;n+=value.length;if(n>2048){await reader.cancel();return null;}text+=decoder.decode(value,{stream:true});}
+ const p=new URLSearchParams(text+decoder.decode()),name=p.getAll("username"),password=p.getAll("password");
+ return name.length===1&&password.length===1&&name[0]==="admin"&&adminSecretReady(password[0])?password[0]:null;
+ }catch{return null;}finally{reader.releaseLock();}
 }
 function adminResponse(body,status,headers={}){
  return new Response(body,{status,headers:{"cache-control":"no-store, private","x-content-type-options":"nosniff","x-frame-options":"DENY","referrer-policy":"no-referrer",...headers}});
 }
 const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>管理者専用 | Kick API接続</title><style>:root{--paper:#fff;--line:#dce4ee;--ink:#182236;--muted:#53657a;--bg:#f1f5fa}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,\"Meiryo\",sans-serif}main{width:min(950px,calc(100% - 32px));margin:24px auto}.heading{display:flex;justify-content:space-between;align-items:center;gap:12px}h2{margin:0;font-size:22px}.rank-eyebrow,.hint,.status{color:var(--muted);font-size:13px}button{cursor:pointer}button:disabled{opacity:.6}a{color:#1859b8}.kick-api-settings{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px;margin:24px 0}.kick-check{padding:8px 14px;border:1px solid #b7c5d6;border-radius:8px;background:white;color:var(--ink);font-weight:700}.kick-api-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}.kick-api-grid div{padding:10px;background:var(--bg);border-radius:8px}.kick-api-grid dt{font-size:12px;color:var(--muted)}.kick-api-grid dd{margin:0;font-weight:700;font-size:14px;overflow-wrap:anywhere}.kick-api-settings summary{cursor:pointer;font-weight:700}.kick-api-settings code{overflow-wrap:anywhere}.kick-api-settings ol{padding-left:1.4em}</style></head><body><main><p><a href=\"/\">← ホームページ</a> ／ 管理者専用</p><section class=\"kick-api-settings\" id=\"kick-api\" aria-labelledby=\"kick-api-title\">\n <div class=\"heading\"><div><span class=\"rank-eyebrow\">KICK / OFFICIAL API</span><h2 id=\"kick-api-title\">Kick API接続</h2></div><button class=\"kick-check\" id=\"kick-api-check\" type=\"button\">接続確認</button></div>\n <p class=\"hint\">公式ランキング・ギフト情報のサーバー接続設定です。認証情報は公開ページに入力せず、CloudflareのSecretに登録してください。</p>\n <dl class=\"kick-api-grid\">\n <div><dt>Client ID</dt><dd id=\"kick-id-status\">未確認</dd></div><div><dt>Client Secret</dt><dd id=\"kick-secret-status\">未確認</dd></div><div><dt>公式API認証</dt><dd id=\"kick-token-status\">未確認</dd></div><div><dt>配信一覧API</dt><dd id=\"kick-live-status\">未確認</dd></div><div><dt>ギフトサブスクAPI</dt><dd id=\"kick-sub-status\">未確認</dd></div><div><dt>ギフト受信DB</dt><dd id=\"kick-db-status\">未確認</dd></div><div><dt>Webhook購読ID設定</dt><dd id=\"kick-hook-status\">未確認</dd></div></dl>\n <p id=\"kick-api-result\" class=\"status\" role=\"status\" aria-live=\"polite\">設定後に接続確認を押してください。確認結果は最大60秒キャッシュされます。</p>\n <details><summary>接続設定方法（管理者用）</summary><ol><li><a href=\"https://docs.kick.com/\" target=\"_blank\" rel=\"noopener noreferrer\">Kick公式開発者ドキュメント</a>を参照し、KickのDeveloper設定でアプリを作成してClient IDとClient Secretを取得。</li><li><a href=\"https://dash.cloudflare.com/\" target=\"_blank\" rel=\"noopener noreferrer\">Cloudflare管理画面</a>の Workers &amp; Pages → kanachin-app-collection → Settings → Variables and Secrets で <code>KICK_CLIENT_ID</code> と <code>KICK_CLIENT_SECRET</code> をSecretとして登録し、反映。</li><li>このページに戻り、接続確認を実行。</li></ol><p class=\"hint\">KICKsギフトの受信には別途D1と公式Webhook購読が必要です。購読ID設定済みは、実際の受信成功を示すものではありません。</p><p>Webhook URL：<code id=\"kick-hook-url\">/api/kick-gift-events</code></p><p><a href=\"https://github.com/kanenao/kanachin-app-collection#readme\" target=\"_blank\" rel=\"noopener noreferrer\">ギフト受信設定の詳細</a></p></details>\n </section><p class=\"hint\">共有端末では利用後にブラウザーを閉じてください。ブラウザーのHTTP認証情報が保持される場合があります。</p></main><script>async function checkKickApi(){\n const button=document.getElementById(\"kick-api-check\"),status=document.getElementById(\"kick-api-result\");\n button.disabled=true;status.textContent=\"Kick公式APIに接続中…\";\n try{\n  const response=await fetch(\"/admin/kick-api/status\",{cache:\"no-store\",signal:AbortSignal.timeout(35000)});if(!response.ok)throw Error(\"HTTP \"+response.status);\n  const d=await response.json();if(typeof d.configured!==\"boolean\")throw Error(\"応答形式不正\");\n  const values={\"kick-id-status\":d.clientIdConfigured?\"設定済み\":\"未設定\",\"kick-secret-status\":d.clientSecretConfigured?\"設定済み\":\"未設定\",\"kick-token-status\":d.tokenStatus,\"kick-live-status\":d.livestreamStatus,\"kick-sub-status\":d.giftApiStatus,\"kick-db-status\":d.giftDbStatus,\"kick-hook-status\":d.giftSubscriptionsConfigured?\"ID設定済み（受信未確認）\":\"未設定\"};\n  for(const [id,value] of Object.entries(values))document.getElementById(id).textContent=typeof value===\"string\"?value:\"未確認\";\n  status.textContent=(d.livestreamStatus===\"接続成功\"?\"公式API接続確認成功\":d.configured?\"接続結果を確認してください\":\"管理者のAPI認証設定が必要です\")+\" ／ 確認時刻 \"+new Date(d.checkedAt).toLocaleTimeString(\"ja-JP\",{timeZone:\"Asia/Tokyo\"});\n }catch{status.textContent=\"接続確認APIに通信できませんでした。再試行してください。\";}finally{button.disabled=false;}\n}\ndocument.getElementById(\"kick-api-check\").addEventListener(\"click\",checkKickApi);\ndocument.getElementById(\"kick-hook-url\").textContent=location.origin+\"/api/kick-gift-events\";\n</script></body></html>";
+
+const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+function adminLoginPage(message="",disabled=false,status=200){
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r66</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
+}
 async function kickAdminRoute(request,env,path){
+ const url=new URL(request.url),isStatus=path==="/admin/kick-api/status"||path==="/api/kick-connection";
+ if(url.protocol!=="https:")return adminResponse("HTTPS required",403);
+ if(!adminSecretReady(env.KICK_ADMIN_PASSWORD))return isStatus?adminResponse("管理者認証未設定",503):adminLoginPage("管理者認証が未設定です。CloudflareのSecretに12文字以上のパスワードを登録してください。",true,503);
+ if(path==="/admin/kick-api/login"||path==="/admin/kick-api/logout"){
+  if(request.method!=="POST")return adminResponse("Method not allowed",405,{"allow":"POST"});
+  if(request.headers.get("origin")!==url.origin)return adminResponse("Forbidden",403);
+  if(path.endsWith("/logout"))return adminResponse(null,303,{"location":"/admin/kick-api","set-cookie":ADMIN_COOKIE+"="+ADMIN_COOKIE_FLAGS+"; Max-Age=0"});
+  let key,failures=0;
+  try{
+   const ip=request.headers.get("CF-Connecting-IP");
+   if(ip){const hash=await adminSign("login-limit:"+ip,env.KICK_ADMIN_PASSWORD);key=new Request(url.origin+"/__cache/admin-login-r66/"+hash);const hit=await caches.default.match(key);if(hit)failures=Number(await hit.text())||0;}
+  }catch{}
+  if(failures>=8)return adminLoginPage("試行回数が多すぎます。15分後に再試行してください。",true,429);
+  const password=await adminReadForm(request);
+  if(!await adminPasswordMatches(password,env.KICK_ADMIN_PASSWORD)){
+   if(key)try{await caches.default.put(key,new Response(String(failures+1),{headers:{"cache-control":"public, max-age=900"}}));}catch{}
+   return adminLoginPage("ユーザー名またはパスワードが違います。",false,401);
+  }
+  if(key)try{await caches.default.delete(key);}catch{}
+  const expiry=Math.floor(Date.now()/1000)+3600,nonce=adminHex(crypto.getRandomValues(new Uint8Array(16))),message=expiry+"."+nonce;
+  const value=message+"."+await adminSign(message,env.KICK_ADMIN_PASSWORD);
+  return adminResponse(null,303,{"location":"/admin/kick-api","set-cookie":ADMIN_COOKIE+"="+value+ADMIN_COOKIE_FLAGS+"; Max-Age=3600"});
+ }
  if(request.method!=="GET")return adminResponse("Method not allowed",405,{"allow":"GET"});
- if(!adminSecretReady(env.KICK_ADMIN_PASSWORD))return adminResponse("管理者認証が未設定です。",503,{"content-type":"text/plain; charset=utf-8"});
- if(!await kickAdminAuthorized(request,env))return adminResponse("管理者認証が必要です。",401,{"www-authenticate":'Basic realm="Kick administration", charset="UTF-8"',"content-type":"text/plain; charset=utf-8"});
- if(path==="/admin/kick-api/status"||path==="/api/kick-connection")return kickConnectionStatus(request,env);
- return adminResponse(KICK_ADMIN_PAGE,200,{"content-type":"text/html; charset=utf-8","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"});
+ if(!await kickAdminAuthorized(request,env))return isStatus?adminResponse("管理者ログインが必要です。",401):adminLoginPage();
+ if(isStatus)return kickConnectionStatus(request,env);
+ const page=KICK_ADMIN_PAGE.replace("共有端末では利用後にブラウザーを閉じてください。ブラウザーのHTTP認証情報が保持される場合があります。","セッションの有効期限は1時間です。利用後はログアウトしてください。").replace("</main>",'<form method="post" action="/admin/kick-api/logout"><button class="kick-check" type="submit">ログアウト</button></form></main>');
+ return adminResponse(page,200,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 async function kickConnectionStatus(request,env){
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405,"no-store");
@@ -1555,12 +1613,12 @@ async function kickConnectionStatus(request,env){
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(["/admin/kick-api","/admin/kick-api/","/admin/kick-api/status","/api/kick-connection"].includes(url.pathname))return kickAdminRoute(request,env,url.pathname);
+ if(["/admin/kick-api","/admin/kick-api/","/admin/kick-api/status","/admin/kick-api/login","/admin/kick-api/logout","/api/kick-connection"].includes(url.pathname))return kickAdminRoute(request,env,url.pathname);
  if(url.pathname==="/api/kick-gift-events")return kickGiftWebhook(request,env);
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r65"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r66"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
