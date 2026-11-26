@@ -778,13 +778,13 @@ async function resolveThumbnailCandidates(type,id,rows){
  }
  return fromRank;
 }
-async function thumbnailResponse(raw,type){
+async function thumbnailResponse(raw,type,preview=false){
  let url=validatedThumb(raw,type);if(!url)return null;
  const signal=AbortSignal.timeout(6000);
  try{
   let response;
   for(let i=0;i<3;i++){
-   response=await fetch(url,{signal,redirect:"manual",headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?"https://live.nicovideo.jp/":"https://kick.com/"}});
+   response=await fetch(url,{signal,redirect:"manual",...(preview?{cache:"no-store"}:{}),headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?"https://live.nicovideo.jp/":"https://kick.com/"}});
    if(![301,302,303,307,308].includes(response.status))break;
    const location=response.headers.get("location");if(response.body)await response.body.cancel();if(!location)return null;
    url=validatedThumb(new URL(location,url).href,type);if(!url)return null;
@@ -795,14 +795,16 @@ async function thumbnailResponse(raw,type){
   try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152){await reader.cancel();return null;}chunks.push(value);}}finally{reader.releaseLock();}
   if(!total)return null;
   const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":type==="kick"?"public, max-age=30":"public, max-age=30","x-content-type-options":"nosniff"}});
+  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":preview?"public, max-age=3":"public, max-age=30","x-content-type-options":"nosniff"}});
  }catch{return null;}
 }
 async function liveThumbnail(request){
  const url=new URL(request.url),type=url.searchParams.get("service"),id=url.searchParams.get("id")||"";
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r34":"r35")+"/"+type+"/"+id);
+ const preview=type==="nico"&&url.searchParams.get("preview")==="1";
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r36":"r35")+"/"+type+"/"+id+(preview?"/preview":""));
+ const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r36/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
@@ -811,14 +813,24 @@ async function liveThumbnail(request){
  }
  if(!rows.length)return new Response(null,{status:404,headers:{"cache-control":"no-store"}});
  const known=rows.find(x=>x.id===id),rankImages=imageCandidates(known.thumbnail,...(known.thumbnailCandidates||[]));
+ if(preview){
+  // Only use a previously successful public image URL; never repeat expensive program detail lookups.
+  let source="";
+  try{const saved=await caches.default.match(sourceKey);if(saved)source=validatedThumb((await saved.json())?.url,"nico");}catch{}
+  const response=source?await thumbnailResponse(source,"nico",true):null;
+  const result=response||new Response(null,{status:404,headers:{"cache-control":"public, max-age=3"}});
+  try{await caches.default.put(key,result.clone());}catch{}
+  return result;
+ }
  // Prefer already observed program images; resolve from fixed public endpoints if unavailable.
- let attempted=new Set();
+ let attempted=new Set(),workingSource="";
  async function tryImages(images){
-  for(const raw of images){const candidate=validatedThumb(raw,type);if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:4))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type);if(response)return response;}return null;
+  for(const raw of images){const candidate=validatedThumb(raw,type);if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:4))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type);if(response){workingSource=candidate;return response;}}return null;
  }
  let result=await tryImages(rankImages.slice(0,2));
  if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows));
  if(!result)result=new Response(null,{status:404,headers:{"cache-control":"public, max-age=25"}});
+ if(type==="nico"&&workingSource){try{await caches.default.put(sourceKey,json({url:workingSource},200,"public, max-age=120"));}catch{}}
  try{await caches.default.put(key,result.clone());}catch{}
  return result;
 }
@@ -827,7 +839,7 @@ export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r35",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r36",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
