@@ -178,7 +178,7 @@ function officialSupplierUserId(supplier) {
 function kickPage(payload){
  if(!Array.isArray(payload?.data))throw Error("Kick応答形式が不正");
  const entries=[];let excluded=0;
- for(const r of payload.data){const slug=typeof r?.channel?.slug==="string"?r.channel.slug.toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof r.language_code==="string"?r.language_code:"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||"タイトルなし").slice(0,250),viewers,url:"https://kick.com/"+slug});}
+ for(const r of payload.data){const slug=typeof r?.channel?.slug==="string"?r.channel.slug.toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof r.language_code==="string"?r.language_code:"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||"タイトルなし").slice(0,250),viewers,startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
  const cursor=payload.pagination?.next_cursor; if(cursor!=null&&(typeof cursor!=="string"||cursor.length>2048))throw Error("Kickページ情報が不正");
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
@@ -193,19 +193,24 @@ async function fetchBounded(url,options={},max=MAX_BYTES){
 }
 async function kickToken(env){if(token&&token.expires>Date.now()+60000)return token.value;if(tokenFlight)return tokenFlight;tokenFlight=(async()=>{const data=JSON.parse(await fetchBounded("https://id.kick.com/oauth/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({grant_type:"client_credentials",client_id:env.KICK_CLIENT_ID,client_secret:env.KICK_CLIENT_SECRET})},65536));if(typeof data.access_token!=="string"||!Number.isFinite(data.expires_in))throw Error("Kick認証に失敗");token={value:data.access_token,expires:Date.now()+data.expires_in*1000};return token.value;})();try{return await tokenFlight;}finally{tokenFlight=null;}}
 function parseKickPublic(html){
- const entries=[],seen=new Set();
- for(const a of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){
-  const href=a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||"";
-  const id=/^https:\/\/(?:www\.)?kick\.com\/([a-z0-9_-]{1,40})\/?(?:[?#][^\s]*)?$/i.exec(href)?.[1].toLowerCase();
-  if(!id||seen.has(id)||["categories","browse","login","signup","settings","search","about","terms","privacy"].includes(id))continue;
-  const imageIds=[...a[2].matchAll(/<img\b[^>]*\balt\s*=\s*(["'])KCK_([a-z0-9_-]{1,40})\1/gi)].map(m=>m[2].toLowerCase());
-  if(!imageIds.includes(id))continue;
-  const text=a[1].match(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/i)?.[2]||a[2];
-  const title=String(text).replace(/<[^>]*>/g," ").replace(/&amp;/g,"&").replace(/\s+/g," ").trim().slice(0,250);
-  seen.add(id);entries.push({id,name:id,title:title||id,viewers:null});
-  if(entries.length>=100)break;
+ const sanitized=String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
+ const anchors=[...sanitized.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)].filter(a=>/^https:\/\/(?:www\.)?kick\.com\/[a-z0-9_-]{1,40}\/?(?:[?#][^\s]*)?$/i.test(a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||""));
+ const plain=s=>s.replace(/<[^>]*>/g," ").replace(/&amp;/g,"&").replace(/&nbsp;|&#160;/g," ").replace(/\s+/g," ").trim();
+ const rows=[],seen=new Set();
+ for(let i=0;i<anchors.length&&rows.length<100;i++){
+  const a=anchors[i],href=a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)[2],id=/^https:\/\/(?:www\.)?kick\.com\/([a-z0-9_-]{1,40})/i.exec(href)[1].toLowerCase();
+  if(seen.has(id)||["categories","browse","login","signup","settings","search","about","terms","privacy"].includes(id))continue;
+  const tail=sanitized.slice(a.index+a[0].length,Math.min(anchors[i+1]?.index??sanitized.length,a.index+a[0].length+5000));
+  const block=a[2]+" "+tail;
+  const imageIds=[...block.matchAll(/<img\b[^>]*\balt\s*=\s*(["'])KCK_([a-z0-9_-]{1,40})\1/gi)].map(m=>m[2].toLowerCase());
+  if(!imageIds.includes(id)||imageIds.some(x=>x!==id))continue;
+  const metrics=plain(block),values=[...metrics.matchAll(/(?:^|\s)(\d{1,3}(?:,\d{3})+|\d{1,10})\s*viewers\b/gi)];
+  const viewers=values.length===1?Number(values[0][1].replace(/,/g,"")):null;
+  const durations=[...metrics.matchAll(/(?:\d+日\s*)?(?:\d+時間\s*)?\d+分/g)];
+  const title=plain(a[1].match(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/i)?.[2]||a[2]).slice(0,250);
+  seen.add(id);rows.push({id,name:id,title:title||id,viewers,duration:durations.length===1?durations[0][0]:""});
  }
- return entries;
+ return rows;
 }
 function diagnostic(error){const msg=String(error?.message||"");return /^HTTP \d{3}$/.test(msg)?msg:error?.name==="TimeoutError"||error?.name==="AbortError"?"タイムアウト":msg==="取得上限超過"?"応答サイズ上限":"通信・形式エラー";}
 async function publicKickRanking(reason){
@@ -214,7 +219,7 @@ async function publicKickRanking(reason){
 }
 async function nicoRanking(){
  const sources=[{name:"ちくわちゃん",url:"https://www.chikuwachan.com/live/NCU/"},{name:"ちくわちゃん",url:"https://chikuwachan.com/live/NCU/"},{name:"nico-ran.stream",url:"https://nico-ran.stream/"},{name:"ニコ生公式ランキング",url:"https://live.nicovideo.jp/ranking"}];const diagnostics=[];
- for(const source of sources){try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);if(rows.length)return {source:source.name,sourceUrl:source.url,complete:false,metric:"掲載順（順位は参考）",fetchedAt:new Date().toISOString(),entries:rows.slice(0,100).map(r=>({id:r.liveId,name:r.name,title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,visitors:r.visitors,comments:r.comments}))};diagnostics.push(source.name+": 番組データなし");}catch(e){diagnostics.push(source.name+": "+diagnostic(e));}}
+ for(const source of sources){try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);if(rows.length)return {source:source.name,sourceUrl:source.url,complete:false,metric:"掲載順（順位は参考）",fetchedAt:new Date().toISOString(),entries:rows.slice(0,100).map(r=>({id:r.liveId,name:r.name,title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,visitors:r.visitors,comments:r.comments,startedAt:r.startedAt,thumbnail:r.thumbnailUrl}))};diagnostics.push(source.name+": 番組データなし");}catch(e){diagnostics.push(source.name+": "+diagnostic(e));}}
  return {status:"error",message:"ニコ生取得失敗（"+diagnostics.join("／")+"）",entries:[]};
 }
 async function kickRanking(env){
@@ -228,7 +233,7 @@ function json(value,status=200,cache="no-store"){return new Response(JSON.string
 const flights=new Map();
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r7",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r8",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(!match)return env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
  const type=match[1],key=new Request(url.origin+url.pathname);
