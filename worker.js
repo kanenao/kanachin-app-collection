@@ -81,6 +81,28 @@ function labeledNicoMetrics(block){
  const durations=[...text.matchAll(/(?:^|\s)((?:\d+日\s*)?(?:\d+時間\s*)?\d+分)(?=\s|$)/g)];
  return {visitors:metric("👨‍👨‍👦(?:‍👦)?|来場者(?:数)?"),comments:metric("💬|コメント(?:数)?"),gift:metric("🎁|ギフト(?:ポイント|pt)?"),advertising:metric("ニコニ広告(?:ポイント|pt)?|広告(?:ポイント|pt)"),duration:durations.length===1?durations[0][1].replace(/\s+/g,""):""};
 }
+function parseNicoRanCards(html){
+ if(typeof html!=="string"||html.length>6*1024*1024)return [];
+ const safe=html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>|<!--[\s\S]*?-->/gi,"");
+ const anchors=[...safe.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)].map(a=>{const href=a[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]||"";return {id:/^(?:https:\/\/live\.nicovideo\.jp)?\/watch\/(lv\d{5,15})\/?(?:[?#][^\s]*)?$/i.exec(href)?.[1].toLowerCase(),viewer:/^(?:https:\/\/nico-ran\.stream)?\/?viewer\.html\?lv=(lv\d{5,15})(?:&[^"']*)?$/i.exec(href)?.[1].toLowerCase(),start:a.index,end:a.index+a[0].length,raw:a[2]};});
+ const rows=[],seen=new Set();
+ const plain=s=>s.replace(/<[^>]*>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/\s+/g," ").trim();
+ for(let i=0;i<anchors.length&&rows.length<200;i++){
+  const a=anchors[i];if(!a.viewer||seen.has(a.viewer))continue;
+  // A card's viewer link must match its immediately preceding watch link.
+  // Event and top-three cards have no comment-viewer link and cannot contribute.
+  let title=null;for(let j=i-1;j>=0;j--){if(anchors[j].viewer)break;if(anchors[j].id){if(anchors[j].id===a.viewer)title=anchors[j];break;}}
+  if(!title)continue;
+  let next=safe.length;for(let j=i+1;j<anchors.length;j++)if(anchors[j].id||anchors[j].viewer){next=anchors[j].start;break;}
+  if(next-a.end>16000)continue;
+  const block=plain(safe.slice(a.end,next));
+  const metric=(label,points=false)=>{const re=new RegExp("(?:^|\\s)"+label+"\\s*[:：]?\\s*(\\d{1,3}(?:,\\d{3})+|\\d{1,12})(?![\\d,])"+(points?"\\s*(?:pt|ポイント)(?=\\s|$)":"(?=\\s|$)"),"gi");const values=[...block.matchAll(re)].map(m=>Number(m[1].replace(/,/g,"")));return values.length===1&&Number.isSafeInteger(values[0])?values[0]:null;};
+  const visitors=metric("来場者(?:数)?"),comments=metric("コメント(?:数)?");if(visitors===null||comments===null)continue;
+  const name=plain(title.raw).slice(0,240);if(!name)continue;
+  seen.add(a.viewer);rows.push({liveId:a.viewer,title:name,visitors,comments,advertising:metric("(?:ニコニ)?広告(?:pt|ポイント)?",true),gift:metric("ギフト(?:（累計pt）|ポイント|pt)?",true)});
+ }
+ return rows;
+}
 function supplementNicoHtml(html,rows){
  const safe=String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");
  const known=new Map(rows.map(r=>[r.liveId,r]));
@@ -263,8 +285,8 @@ async function publicKickRanking(reason){
 }
 async function nicoRanking(){
  const sources=[{name:"ちくわちゃん",url:"https://www.chikuwachan.com/live/NCU/"},{name:"nico-ran.stream",url:"https://nico-ran.stream/"},{name:"ニコ生公式ランキング",url:"https://live.nicovideo.jp/ranking"}];
- const results=await Promise.all(sources.map(async source=>{try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);if(source.name==="ちくわちゃん")supplementNicoHtml(html,rows);return {source,rows,reason:rows.length?"":"番組データなし"};}catch(e){return {source,rows:[],reason:diagnostic(e)};}}));
- const best=results.find(r=>r.rows.length);if(best)for(const result of results){if(result!==best){const lookup=new Map(result.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=lookup.get(row.liveId);if(!other)continue;for(const k of ["visitors","comments","gift","advertising","startedAt","duration","thumbnailUrl"])if((row[k]==null||row[k]==="")&&other[k]!=null&&other[k]!=="")row[k]=other[k];}}}
+ const results=await Promise.all(sources.map(async source=>{try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);if(source.name==="ちくわちゃん")supplementNicoHtml(html,rows);if(source.name==="nico-ran.stream"){const cards=parseNicoRanCards(html);if(cards.length){const map=new Map(rows.map(r=>[r.liveId,r]));rows=cards.map(card=>{const r=map.get(card.liveId)||{};return {...r,...card,advertising:card.advertising??r.advertising??null,gift:card.gift??r.gift??null};});}}return {source,rows,reason:rows.length?"":"番組データなし"};}catch(e){return {source,rows:[],reason:diagnostic(e)};}}));
+ const best=results.find(r=>r.rows.length);if(best){const preferred=results.find(r=>r.source.name==="nico-ran.stream");if(preferred){const map=new Map(preferred.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=map.get(row.liveId);if(other){for(const k of ["advertising","gift"])if(other[k]!=null)row[k]=other[k];}}}}if(best)for(const result of results){if(result!==best){const lookup=new Map(result.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=lookup.get(row.liveId);if(!other)continue;for(const k of ["visitors","comments","gift","advertising","startedAt","duration","thumbnailUrl"])if((row[k]==null||row[k]==="")&&other[k]!=null&&other[k]!=="")row[k]=other[k];}}}
  if(best)return {source:best.source.name,sourceUrl:best.source.url,complete:false,metric:"掲載順（順位は参考）",fetchedAt:new Date().toISOString(),entries:best.rows.slice(0,100).map(r=>({id:r.liveId,name:r.name,title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,visitors:r.visitors??null,comments:r.comments??null,advertising:r.advertising??null,gift:r.gift??null,duration:r.duration||'',startedAt:r.startedAt,thumbnail:r.thumbnailUrl}))};
  const diagnostics=results.map(r=>r.source.name+": "+r.reason);
  return {status:"error",message:"ニコ生取得失敗（"+diagnostics.join("／")+"）",entries:[]};
@@ -279,10 +301,10 @@ async function kickRanking(env){
 function json(value,status=200,cache="no-store"){return new Response(JSON.stringify(value),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":cache,"x-content-type-options":"nosniff"}});}
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r11",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r12",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r11");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r12");
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
   const data=type==="nico"?await nicoRanking():await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
