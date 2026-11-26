@@ -1494,13 +1494,45 @@ async function nicoSupplementalStatistics(request){
  return json({status:"ok",entries:results,pending:Math.max(0,pending.length-2)},200,"no-store");
 }
 
+function connectionError(e){const message=String(e?.message||"");return /^HTTP \d{3}$/.test(message)?message:e?.name==="TimeoutError"||e?.name==="AbortError"?"タイムアウト":"接続失敗・応答確認";}
+async function kickConnectionProbe(env,getToken,readApi,clock){
+ const out={configured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET),clientIdConfigured:!!env.KICK_CLIENT_ID,clientSecretConfigured:!!env.KICK_CLIENT_SECRET,tokenStatus:"未設定",livestreamStatus:"未確認",giftApiStatus:"未確認",giftDbConfigured:!!env.KICK_GIFT_DB,giftSubscriptionsConfigured:!!env.KICK_GIFT_SUBSCRIPTION_IDS,giftDbStatus:"未設定",checkedAt:clock()};
+ if(out.configured){
+  try{
+   const token=await getToken(env);
+   if(typeof token!=="string"||!token)throw Error("認証失敗");
+   out.tokenStatus="接続成功";
+   try{const data=await readApi("https://api.kick.com/public/v2/livestreams?limit=1",token);if(!Array.isArray(data?.data))throw Error("応答形式不正");out.livestreamStatus="接続成功";
+    const slug=data.data.find(x=>typeof x?.channel?.slug==="string"&&/^[a-z0-9_-]{1,40}$/i.test(x.channel.slug))?.channel.slug;
+    if(slug){
+     try{const channel=await readApi("https://api.kick.com/public/v1/channels?slug="+encodeURIComponent(slug),token);if(!Array.isArray(channel?.data))throw Error("応答形式不正");const match=channel.data.find(x=>x.slug?.toLowerCase()===slug.toLowerCase());out.giftApiStatus=match&&Number.isSafeInteger(match.active_gifted_subscribers_count)&&match.active_gifted_subscribers_count>=0?"接続成功・有効数取得可":"接続成功・項目未確認";}catch(e){out.giftApiStatus=connectionError(e);}
+    }else out.giftApiStatus="確認用配信なし";
+   }catch(e){out.livestreamStatus=connectionError(e);}
+  }catch(e){out.tokenStatus=connectionError(e);}
+ }
+ if(out.giftDbConfigured){try{await env.KICK_GIFT_DB.prepare("SELECT event_id FROM kick_gift_events LIMIT 1").first();out.giftDbStatus="接続成功";}catch{out.giftDbStatus="接続失敗・テーブル確認";}}
+ out.checkedAt=clock();
+ return out;
+}
+async function kickConnectionStatus(request,env){
+ if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405,"no-store");
+ const origin=new URL(request.url).origin;
+ const key=new Request(origin+"/__cache/kick-connection-r63");
+ const flags=[!!env.KICK_CLIENT_ID,!!env.KICK_CLIENT_SECRET,!!env.KICK_GIFT_DB,!!env.KICK_GIFT_SUBSCRIPTION_IDS].join(",");
+ try{const hit=await caches.default.match(key);if(hit){const saved=await hit.json();if(saved.flags===flags)return json(saved.result,200,"no-store");}}catch{}
+ // Per-edge short cache reduces repeated public probe requests. Never expose secrets or upstream payloads.
+ const result=await kickConnectionProbe(env,kickToken,async(url,token)=>JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+token,accept:"application/json"}},1024*1024)),Date.now);
+ try{await caches.default.put(key,json({flags,result},200,"public, max-age=60"));}catch{}
+ return json(result,200,"no-store");
+}
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
+ if(url.pathname==="/api/kick-connection")return kickConnectionStatus(request,env);
  if(url.pathname==="/api/kick-gift-events")return kickGiftWebhook(request,env);
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r62",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET),kickGiftWebhookConfigured:!!(env.KICK_GIFT_DB&&env.KICK_GIFT_SUBSCRIPTION_IDS)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r63",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET),kickGiftWebhookConfigured:!!(env.KICK_GIFT_DB&&env.KICK_GIFT_SUBSCRIPTION_IDS)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
