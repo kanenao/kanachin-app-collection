@@ -567,7 +567,7 @@ function parseStatsMessage(raw){
  }catch{return null;}
 }
 const RANK_CACHE_REVISION="r58";
-function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r76":RANK_CACHE_REVISION)));}
+function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+(type==="kick"?"r77":RANK_CACHE_REVISION)));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
  if(data?.program?.isOnAir===false)return null;
@@ -992,55 +992,59 @@ function kickChatId(value){
 }
 function recentKickSample(payload,roomId,startedAt,now,terminal=false){
  const messages=payload?.data?.messages;
- if(!Array.isArray(messages)||!messages.length||messages.length>12000||!Number.isFinite(startedAt)||startedAt>now)return null;
- const windows=[30,15,10].filter(sec=>now-startedAt>=sec*1000).map(sec=>({sec,cutoff:now-sec*1000,covered:false,uncertain:false,ids:new Set()}));
- const activeCutoff=Math.max(startedAt,now-600000),ids=new Set(),senders=new Set();
- let activeCovered=false,missingSender=false,valid=0,activeUncertain=false,previous=Infinity;
+ if(!Array.isArray(messages)||!messages.length||messages.length>16000||!Number.isFinite(startedAt)||startedAt>now)return null;
+ const windows=[30,15,10,5].filter(sec=>now-startedAt>=sec*1000).map(sec=>({sec,cutoff:now-sec*1000,covered:false,uncertain:false,ids:new Set()}));
+ const activity=[600,300,180,60,30].filter(sec=>now-startedAt>=sec*1000).map(sec=>({sec,cutoff:now-sec*1000,covered:false,uncertain:false,senders:new Set()}));
+ // A newly started stream can have a shorter, explicitly labelled activity window.
+ if(!activity.length&&now-startedAt>=1000)activity.push({sec:Math.floor((now-startedAt)/1000),cutoff:startedAt,covered:false,uncertain:false,senders:new Set()});
+ const ids=new Set();let valid=0;
  for(const msg of messages){
   const at=kickChatTime(msg?.created_at),id=kickChatId(msg?.id);
-  const invalid=!msg||typeof msg!=="object"||!id||!Number.isFinite(at)||at>now||at>previous||(msg.chatroom_id!=null&&(!roomId||String(msg.chatroom_id)!==String(roomId)));
-  if(invalid){for(const v of windows)if(!Number.isFinite(at)||at>v.cutoff)v.uncertain=true;if(!Number.isFinite(at)||at>activeCutoff)activeUncertain=true;continue;}
-  previous=at;valid++;
-  for(const v of windows)if(at<=v.cutoff)v.covered=true;
-  if(at<=activeCutoff){activeCovered=true;continue;}
-  if(msg.type!=null&&!["message","reply","celebration"].includes(msg.type)){for(const v of windows)if(at>v.cutoff)v.uncertain=true;activeUncertain=true;continue;}
-  if(ids.has(id))continue;
-  ids.add(id);
+  // Messages newer than the fixed sample time are outside this sample.
+  if(Number.isFinite(at)&&at>now)continue;
+  const invalid=!msg||typeof msg!=="object"||!id||!Number.isFinite(at)||(msg.chatroom_id!=null&&(!roomId||String(msg.chatroom_id)!==String(roomId)));
+  if(invalid){for(const v of [...windows,...activity])if(!Number.isFinite(at)||at>v.cutoff)v.uncertain=true;continue;}
+  valid++;
+  for(const v of [...windows,...activity])if(at<=v.cutoff)v.covered=true;
+  if(msg.type!=null&&!["message","reply","celebration"].includes(msg.type)){for(const v of [...windows,...activity])if(at>v.cutoff)v.uncertain=true;continue;}
+  if(ids.has(id))continue;ids.add(id);
   for(const v of windows)if(at>v.cutoff)v.ids.add(id);
-  const sender=kickChatId(msg.sender?.id);
-  if(sender&&/^[1-9]\d*$/.test(sender))senders.add(sender);else missingSender=true;
+  const sender=kickChatId(msg.sender?.id??msg.sender?.user_id);
+  for(const v of activity)if(at>v.cutoff){if(sender&&/^[1-9]\d*$/.test(sender))v.senders.add(sender);else v.uncertain=true;}
  }
  if(!valid)return null;
  const chatCounts=Object.fromEntries(windows.filter(v=>(v.covered||terminal)&&!v.uncertain).map(v=>[v.sec,v.ids.size]));
- const chatWindowSeconds=[30,15,10].find(sec=>Number.isSafeInteger(chatCounts[sec]))??null;
- const activeComplete=(activeCovered||terminal)&&!activeUncertain&&!missingSender;
- return {receivedComments:chatWindowSeconds===null?null:chatCounts[chatWindowSeconds],chatCounts,activeUsers:activeComplete?senders.size:null,chatPartial:chatWindowSeconds===null,activePartial:!activeComplete,chatStage:chatWindowSeconds===null?"直近10秒以上の履歴確認待ち":"直近"+chatWindowSeconds+"秒の履歴範囲確認済み",activeStage:activeComplete?"直近10分の履歴範囲確認済み":missingSender?"投稿者ID未取得":"直近10分の履歴不足",chatWindowSeconds,activeWindowSeconds:Math.max(1,Math.ceil((now-activeCutoff)/1000)),sampledAt:new Date(now).toISOString()};
+ const chatWindowSeconds=[30,15,10,5].find(sec=>Number.isSafeInteger(chatCounts[sec]))??null;
+ const active=activity.find(v=>(v.covered||terminal)&&!v.uncertain);
+ const full=active?.sec===600;
+ return {receivedComments:chatWindowSeconds===null?null:chatCounts[chatWindowSeconds],chatCounts,activeUsers:full?active.senders.size:null,activeRecentUsers:active?.senders.size??null,activeRecentSeconds:active?.sec??null,chatPartial:chatWindowSeconds===null,activePartial:!full,chatStage:chatWindowSeconds===null?"短時間のチャット履歴を確認中":"直近"+chatWindowSeconds+"秒の履歴範囲確認済み",activeStage:full?"直近10分の履歴範囲確認済み":active?"直近"+active.sec+"秒の実測取得済み・10分集計中":"アクティブ履歴確認中",chatWindowSeconds,activeWindowSeconds:600,sampledAt:new Date(now).toISOString()};
 }
 async function recentKickHistory(readPage,roomId,startedAt,clock=Date.now,windowMs=600000){
- const messages=[],seen=new Set(),deadline=clock()+8500;
- let cursor="",now=null,terminal=false,last=Infinity;
- for(let page=0;page<(windowMs===30000?3:12);page++){
+ const messages=[],seen=new Set(),now=clock(),deadline=now+8500;
+ // Kick reverse history cursor uses Unix microseconds. Keep its returned cursor opaque.
+ let cursor=String(now*1000),terminal=false,last=Infinity;
+ for(let page=0;page<(windowMs===30000?4:12);page++){
   if(page&&clock()>=deadline)break;
   let payload;
   try{payload=await readPage(cursor);}catch{break;}
-  if(now===null)now=clock();
   const data=payload?.data,items=data?.messages;
   if(!Array.isArray(items)||items.length>1000)break;
-  // Verify reverse traversal; do not silently treat a replayed or forward page as complete.
-  let boundary=last,ordered=true;
-  for(const m of items){const t=kickChatTime(m?.created_at);if(!Number.isFinite(t)||t>boundary){ordered=false;break;}boundary=t;}
-  if(!ordered)break;
-  messages.push(...items);last=boundary;
-  if(items.length&&last<=Math.max(startedAt,now-windowMs))break;
-  // An explicit null cursor on a nonempty, short final page establishes exhaustion.
-  // An empty response alone (or a capped page with no cursor) is not proof.
-  if(Object.prototype.hasOwnProperty.call(data,"cursor")&&data.cursor===null&&items.length>0&&items.length<25){terminal=true;break;}
+  // Page ordering may vary. Validate all timestamps, reject repeated or non-progressing
+  // pages, and deduplicate overlapping message IDs when aggregating.
+  if(items.some(m=>!Number.isFinite(kickChatTime(m?.created_at))))break;
+  const sorted=[...items].sort((a,b)=>kickChatTime(b.created_at)-kickChatTime(a.created_at));
+  const oldest=sorted.length?kickChatTime(sorted[sorted.length-1].created_at):Infinity;
+  if(sorted.length&&oldest>=last)break;
+  if(sorted.length){messages.push(...sorted);last=oldest;}
+  if(sorted.length&&last<=Math.max(startedAt,now-windowMs))break;
+  if(Object.prototype.hasOwnProperty.call(data,"cursor")&&data.cursor===null&&((items.length>0&&items.length<25)||(!items.length&&messages.length>0))){terminal=true;break;}
   const next=typeof data.cursor==="string"?data.cursor:typeof data.cursor==="number"&&Number.isSafeInteger(data.cursor)?String(data.cursor):"";
-  if(!items.length||!next||next.length>512||/[\x00-\x20\x7f]/.test(next)||seen.has(next))break;
-  seen.add(next);cursor=next;
+  if(!items.length||!next||next.length>512||/[\x00-\x20\x7f]/.test(next)||seen.has(next)||next===cursor)break;
+  seen.add(cursor);cursor=next;
  }
- return now===null?null:recentKickSample({data:{messages}},roomId,startedAt,now,terminal);
+ return recentKickSample({data:{messages}},roomId,startedAt,now,terminal);
 }
+
 function officialGiftCount(value){if(typeof value==="string"&&/^\d{1,12}$/.test(value))value=Number(value);return Number.isSafeInteger(value)&&value>=0&&value<=999999999999?value:null;}
 function officialGiftEvent(type,payload,now){
  const broadcaster=officialGiftCount(payload?.broadcaster?.user_id),at=Date.parse(payload?.created_at);
@@ -1188,10 +1192,10 @@ async function enrichKickPublicMetrics(data,origin,env){
  const sameStream=(row,sample)=>sample&&Number.isFinite(Date.parse(sample.startedAt))&&(!row.startedAt||Math.abs(Date.parse(row.startedAt)-Date.parse(sample.startedAt))<=60000);
  const ageOf=(value,key)=>{const t=Date.parse(value?.[key]);return Number.isFinite(t)&&t<=clock?clock-t:Infinity;};
  const applyChat=(row,value)=>{for(const k of ["receivedComments","chatCounts","chatPartial","chatStage","chatWindowSeconds","sampledAt"])row[k]=value[k];};
- const applyActive=(row,value)=>{for(const k of ["activeUsers","activePartial","activeStage","activeWindowSeconds","activeSampledAt"])row[k]=value[k];};
+ const applyActive=(row,value)=>{for(const k of ["activeUsers","activeRecentUsers","activeRecentSeconds","activePartial","activeStage","activeWindowSeconds","activeSampledAt"])row[k]=value[k];};
  await Promise.all(rows.map(async row=>{
   if(!/^[a-z0-9_-]{1,40}$/.test(row.id))return;
-  const chatKey=new Request(origin+"/__cache/kick-chat-r76/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r75/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
+  const chatKey=new Request(origin+"/__cache/kick-chat-r77/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r77/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r75/"+row.id);
   let [chat,active]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey)]);
   if(!sameStream(row,chat))chat=null;if(!sameStream(row,active))active=null;
   const chatAge=ageOf(chat,"sampledAt"),activeAge=ageOf(active,"activeSampledAt");
@@ -1224,8 +1228,8 @@ async function enrichKickPublicMetrics(data,origin,env){
    // A failed refresh cannot silently replace a prior verified count with zero.
    if(!chat.chatPartial||row.receivedComments==null){applyChat(row,chat);await cachePut(chatKey,chat,45);}
    if(full||sample.activePartial===false){
-    const active={startedAt:identity.startedAt,activeUsers:sample.activeUsers,activePartial:sample.activePartial,activeStage:sample.activeStage,activeWindowSeconds:sample.activeWindowSeconds,activeSampledAt:sample.sampledAt};
-    if(!active.activePartial||row.activeUsers==null){applyActive(row,active);await cachePut(activeKey,active,90);}
+    const active={startedAt:identity.startedAt,activeUsers:sample.activeUsers,activeRecentUsers:sample.activeRecentUsers,activeRecentSeconds:sample.activeRecentSeconds,activePartial:sample.activePartial,activeStage:sample.activeStage,activeWindowSeconds:sample.activeWindowSeconds,activeSampledAt:sample.sampledAt};
+    if(!active.activePartial||row.activeUsers==null){if(active.activeRecentUsers!=null||row.activeRecentUsers==null){applyActive(row,active);await cachePut(activeKey,active,90);}}
    }
   }catch{if(row.receivedComments==null)row.chatStage="最新チャット取得待ち";}
  }));
@@ -1643,7 +1647,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r76</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r77</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1700,7 +1704,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r76"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r77"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
