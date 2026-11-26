@@ -14,5 +14,16 @@
       "database_name": "kick-gifts",
       "database_id": "a02750be-3819-4c78-9197-290b64d0f686"
     }
+  ],
+  "compatibility_flags": [
+    "enable_ctx_exports"
+  ],
+  "migrations": [
+    {
+      "tag": "ranking-live-v1",
+      "new_sqlite_classes": [
+        "RankingLiveHub"
+      ]
+    }
   ]
 }
