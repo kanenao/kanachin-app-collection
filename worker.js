@@ -495,7 +495,7 @@ function parseStatsMessage(raw){
   return {advertising,gift,visitors,comments};
  }catch{return null;}
 }
-const RANK_CACHE_REVISION="r45";
+const RANK_CACHE_REVISION="r46";
 function rankingCacheKeys(origin,type){return ["revision","last-good"].map(key=>new Request(origin+"/api/rankings/"+type+"?"+key+"="+RANK_CACHE_REVISION));}
 function statisticsEndpoint(data,id){
  if(!/^lv\d{5,15}$/.test(id)||liveId(data?.program?.nicoliveProgramId??data?.program?.programId??data?.program?.liveId??data?.program?.id?.value??data?.program?.id)!==id)return null;
@@ -601,38 +601,53 @@ async function sampleNicoActivity(raw){
   return null;
  }catch{return null;}
 }
+function watchStartRequest(){return {type:"startWatching",data:{stream:{quality:"abr",protocol:"hls",latency:"low",chasePlay:false},room:{protocol:"webSocket",commentable:false},reconnect:false}};}
+function watchErrorLabel(message){
+ const code=String(message?.data?.code??message?.data?.reason??"");
+ return /^[A-Z][A-Z0-9_]{1,60}$/.test(code)?code:"詳細なし";
+}
 async function fetchNicoStatistics(endpoint,wantActivity=false){
- if(!endpoint)return null;
+ if(!endpoint)return {watchStage:"視聴接続先未取得"};
  let ws;
  try{
-  const response=await fetch(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},redirect:"error",signal:AbortSignal.timeout(4000)});
-  ws=response.webSocket;if(!ws)return null;
+  // A single deadline covers the handshake and short read. Do not abort
+  // a successful upgraded connection at the old four-second deadline.
+  const signal=AbortSignal.timeout(28000);
+  const response=await fetch(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},redirect:"error",signal});
+  ws=response.webSocket;
+  if(!ws){const status=response.status;try{await response.body?.cancel();}catch{}return {watchStage:"視聴接続 HTTP "+status};}
   return await new Promise(resolve=>{
-   let done=false,latest=null,timer,viewReceived=false,activityRunning=false,activity=null,activityStage="";
-   function finish(){if(done)return;done=true;clearTimeout(timer);try{ws.close(1000,"statistics complete");}catch{}resolve(latest||viewReceived?{...latest,...activity,activityStage:activityStage||"コメント履歴接続先未取得"}:null);}
+   let done=false,latest=null,timer,seatTimer,viewReceived=false,activityRunning=false,activity=null,activityStage="",watchStage="接続成功・statistics未受信";
+   function finish(reason){if(done)return;done=true;clearTimeout(timer);clearInterval(seatTimer);signal.removeEventListener("abort",onAbort);try{ws.close(1000,"statistics complete");}catch{}resolve({...latest,...activity,watchStage:latest?(latest.advertising!=null&&latest.gift!=null?"広告・ギフト受信済み":"statistics受信・広告またはギフトなし"):reason||watchStage,activityStage:activityStage||"コメント履歴接続先未取得"});}
+   function onAbort(){finish("視聴通信タイムアウト");}
    function maybeFinish(){if(latest?.advertising!=null&&latest?.gift!=null&&(!wantActivity||(viewReceived&&!activityRunning)))finish();}
-   function send(value){if(done)return;try{ws.send(JSON.stringify(value));}catch{finish();}}
-   timer=setTimeout(finish,wantActivity?22000:8000);
-   ws.addEventListener("close",finish);ws.addEventListener("error",finish);
+   function send(value){if(done)return;try{ws.send(JSON.stringify(value));}catch{finish("視聴メッセージ送信失敗");}}
+   timer=setTimeout(()=>finish(),wantActivity?22000:12000);
+   signal.addEventListener("abort",onAbort,{once:true});
+   ws.addEventListener("close",event=>finish("視聴接続切断 "+(Number.isInteger(event.code)?event.code:"詳細なし")));
+   ws.addEventListener("error",()=>finish("視聴接続エラー"));
    ws.addEventListener("message",event=>{
     if(done)return;
-    const stat=parseStatsMessage(event.data);
+    let raw=event.data;
+    if(raw instanceof ArrayBuffer){if(raw.byteLength>65536)return;raw=new TextDecoder().decode(raw);}
+    if(typeof raw!=="string"||raw.length>65536)return;
+    const stat=parseStatsMessage(raw);
     if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};maybeFinish();return;}
-    if(typeof event.data!=="string"||event.data.length>65536)return;
     try{
-     const message=JSON.parse(event.data);
-     if(message.type==="ping"){send({type:"pong"});send({type:"keepSeat"});}
+     const message=JSON.parse(raw);
+     if(message.type==="ping")send({type:"pong"});
+     else if(message.type==="seat"){clearInterval(seatTimer);const seconds=Math.max(10,Math.min(300,Number(message.data?.keepIntervalSec)||30));seatTimer=setInterval(()=>send({type:"keepSeat"}),seconds*1000);}
      else if(message.type==="messageServer"&&wantActivity&&!viewReceived){
       const view=activityFeedUrl(message.data?.viewUri);
       if(view){viewReceived=true;activityRunning=true;activityStage="コメント履歴取得中";
        sampleNicoActivity(view.href).then(result=>{if(done)return;activity=result;activityRunning=false;activityStage=result?(result.active10m==null?"10分履歴不足":"10分履歴取得済み"):"コメント履歴取得失敗";maybeFinish();}).catch(()=>{if(done)return;activityRunning=false;activityStage="コメント履歴取得失敗";maybeFinish();});
-      }
-     }else if(message.type==="disconnect"||message.type==="error")finish();
+      }else activityStage="コメント履歴URL形式未対応";
+     }else if(message.type==="disconnect"||message.type==="error")finish("視聴サーバー "+watchErrorLabel(message));
     }catch{}
    });
-   try{ws.accept();send({type:"startWatching",data:{stream:{quality:"abr",protocol:"hls",latency:"high",chasePlay:false},room:{protocol:"webSocket",commentable:true},reconnect:false}});}catch{finish();}
+   try{ws.accept();send(watchStartRequest());}catch{finish("視聴接続初期化失敗");}
   });
- }catch{try{ws?.close(1000,"statistics unavailable");}catch{}return null;}
+ }catch(e){try{ws?.close(1000,"statistics unavailable");}catch{}return {watchStage:"視聴接続: "+diagnostic(e)};}
 }
 
 function publicNicoDetail(html,id){
@@ -1004,7 +1019,7 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r45/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r46/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
   const fields=statisticsFields(row);
@@ -1024,10 +1039,10 @@ async function nicoSupplementalStatistics(request){
     if(detail.statisticsEndpoint){
      const wantActivity=result.active10m==null;
      const stat=await fetchNicoStatistics(detail.statisticsEndpoint,wantActivity);
-     result.stage=stat?"公式統計受信・項目未取得":"公式統計通信失敗";
+     result.stage=stat?.watchStage||"公式統計通信失敗";
      if(stat){
       Object.assign(result,statisticsFields(stat));
-      if(wantActivity)result.stage=stat.activityStage||"コメント履歴接続先未取得";
+      if(wantActivity&&result.advertising!=null&&result.gift!=null)result.stage=stat.activityStage||"コメント履歴接続先未取得";
      }
     }
    }
@@ -1045,7 +1060,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r45",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r46",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
