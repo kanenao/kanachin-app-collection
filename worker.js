@@ -457,26 +457,10 @@ function kickImage(value){
  if(typeof value!=="string"||value.length>2048)return "";
  return /^https:\/\/(?:[a-z0-9-]+\.)*kick\.com\/[^\s<>\\]+$/i.test(value)?value:"";
 }
-function kickAvatarUrl(...values){
- let fallback="";
- for(const raw of values){
-  if(typeof raw!=="string"||raw.length>2048)continue;
-  try{const u=new URL(raw);if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||!["files.kick.com","images.kick.com","kick.com","dbxmjjzl5pc1g.cloudfront.net"].includes(u.hostname))continue;
-   if(/\/(?:video_thumbnails|thumbnails|banners|categories)\//i.test(u.pathname)||!/\/(?:[^/]*profile[^/]*|[^/]*avatar[^/]*|[^/]*icon[^/]*)(?:\/|[._-]|$)/i.test(u.pathname)&&u.hostname==="kick.com")continue;
-   if(!/\.(?:png|jpe?g|webp|gif|avif)$/i.test(u.pathname))continue;
-   if(/default[-_](?:profile|avatar)|\/defaults?\//i.test(u.pathname)){if(!fallback)fallback=u.href;continue;}
-   return u.href;
-  }catch{}
- }
- return fallback;
-}
-function kickAvatarFrom(row){
- return kickAvatarUrl(row?.broadcaster_user?.profile_picture,row?.broadcaster_user?.profile_pic,row?.profile_picture,row?.profile_pic,row?.user?.profile_pic,row?.user?.profile_picture,row?.channel?.user?.profile_pic,row?.channel?.user?.profile_picture,row?.channel?.profile_picture);
-}
 function kickPage(payload){
  if(!Array.isArray(payload?.data))throw Error("Kick応答形式が不正");
  const entries=[];let excluded=0;
- for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,avatarUrl:kickAvatarFrom(r),kickOfficialId:officialGiftCount(r.broadcaster_user_id??r.broadcaster_user?.id??r.channel?.broadcaster_user_id),name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(kickExplicitImage).find(Boolean)||"",thumbnailCandidates:kickFrameCandidates(r).map(kickExplicitImage).filter(Boolean),thumbnailVerified:true,startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
+ for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,kickOfficialId:officialGiftCount(r.broadcaster_user_id??r.broadcaster_user?.id??r.channel?.broadcaster_user_id),name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(kickExplicitImage).find(Boolean)||"",thumbnailCandidates:kickFrameCandidates(r).map(kickExplicitImage).filter(Boolean),thumbnailVerified:true,startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
  const cursor=payload.pagination?.next_cursor; if(cursor!=null&&(typeof cursor!=="string"||cursor.length>2048))throw Error("Kickページ情報が不正");
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
@@ -982,13 +966,6 @@ async function fetchNicoReferencePage(origin,source){
  return result;
 }
 function nicoAccountIdentity(row){const ids=new Set();const m=typeof row.profileUrl==="string"?/^https:\/\/(?:www\.)?nicovideo\.jp\/user\/([1-9]\d{0,14})\/?$/.exec(row.profileUrl):null;if(m)ids.add(m[1]);if(/^[1-9]\d{0,14}$/.test(String(row.userId??"")))ids.add(String(row.userId));if(/^[1-9]\d{0,14}$/.test(String(row.historyOwner??"")))ids.add(String(row.historyOwner));if(row.providerKind==="channel"||row.channelOwner){const id=String(row.channelOwner??"");return {userId:"",channelId:/^[1-9]\d{0,14}$/.test(id)?id:""};}return {userId:ids.size===1?[...ids][0]:"",channelId:""};}
-function nicoAccountAvatarUrl(...values){
- for(const raw of values){
-  if(typeof raw!=="string"||raw.length>2048)continue;
-  try{const u=new URL(raw);if(u.protocol==="https:"&&!u.username&&!u.password&&!u.port&&!u.hash&&["secure-dcdn.cdn.nimg.jp","usericon.nimg.jp","usericon.nicovideo.jp"].includes(u.hostname)&&/\/usericon\//i.test(u.pathname)&&/\.(?:jpg|jpeg|png|webp|gif)$/i.test(u.pathname))return u.href;}catch{}
- }
- return "";
-}
 function parseNicoPublicProfile(raw,id){
  const count=v=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0?v:typeof v==="string"&&/^\d{1,12}$/.test(v)&&Number.isSafeInteger(Number(v))?Number(v):null;
  const decode=v=>v.replace(/&quot;|&#34;|&#x22;/gi,'"').replace(/&apos;|&#39;/gi,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&");
@@ -997,13 +974,12 @@ function parseNicoPublicProfile(raw,id){
  add(raw);
  for(const m of raw.matchAll(/(?:data-(?:initial-data|api-data|props|state|page-data)|content)\s*=\s*(["'])([\s\S]*?)\1/gi)){if(roots.length>=25)break;if(/^\s*(?:\{|&quot;|&#34;|\[)/.test(m[2]))add(m[2]);}
  for(const m of raw.matchAll(/<script\b[^>]*(?:type\s*=\s*["']application\/json["']|id\s*=\s*["'](?:__NEXT_DATA__|embedded-data)["'])[^>]*>([\s\S]*?)<\/script>/gi)){if(roots.length>=30)break;add(m[1]);}
- const result={userId:id,followeeCount:null,followerCount:null,userLevel:null,avatarUrl:""};let seen=0;
+ const result={userId:id,followeeCount:null,followerCount:null,userLevel:null};let seen=0;
  const walk=(obj,depth=0)=>{
   if(!obj||typeof obj!=="object"||depth>12||++seen>20000)return;
   if(!Array.isArray(obj)&&String(obj.id??obj.userId??obj.user?.id??"")===id){
    const base=obj.user&&String(obj.user.id??obj.user.userId??"")===id?obj.user:obj;
    const profile=base.profile&&typeof base.profile==="object"?base.profile:{};
-   if(!result.avatarUrl)result.avatarUrl=nicoAccountAvatarUrl(base.icons?.large,base.icons?.small,base.iconUrl,base.icon?.large,profile.iconUrl);
    const following=count(base.followeeCount??base.followingCount??profile.followeeCount??base.follow?.followeeCount??obj.followeeCount);
    const followers=count(base.followerCount??profile.followerCount??base.follow?.followerCount??obj.followerCount);
    const level=count(base.userLevel?.currentLevel??base.userLevel?.level??base.userLevel??profile.userLevel?.currentLevel??obj.userLevel?.currentLevel);
@@ -1019,23 +995,23 @@ async function nicoProfileBatch(origin,rank){
  for(const id of ids){
   const key=new Request(origin+"/__cache/nico-public-profile-r90/"+id);let cached=null;
   try{const hit=await caches.default.match(key);if(hit)cached=await hit.json();}catch{}
-  if(cached&&cached.userId===id){profiles.push(cached);if(Date.now()-cached.checkedAt<([cached.followeeCount,cached.followerCount,cached.userLevel].every(v=>v!==null)?600000:120000))continue;}todo.push({id,key,cached});
+  if(cached&&cached.userId===id){delete cached.avatarUrl;profiles.push(cached);if(Date.now()-cached.checkedAt<([cached.followeeCount,cached.followerCount,cached.userLevel].every(v=>v!==null)?600000:120000))continue;}todo.push({id,key,cached});
  }
  todo.sort((a,b)=>(a.cached?.checkedAt||0)-(b.cached?.checkedAt||0));
  await Promise.all(todo.slice(0,2).map(async({id,key,cached})=>{
-  let value={userId:id,followeeCount:null,followerCount:null,userLevel:null,avatarUrl:"",checkedAt:Date.now()};
+  let value={userId:id,followeeCount:null,followerCount:null,userLevel:null,checkedAt:Date.now()};
   try{
    const endpoints=["https://www.nicovideo.jp/user/"+id+"/video?responseType=json","https://nvapi.nicovideo.jp/v1/users/"+id];
    for(const endpoint of endpoints){
     try{const raw=await fetchBounded(endpoint,{headers:{accept:"text/html,application/json;q=0.9","accept-language":"ja","X-Frontend-Id":"6","X-Frontend-Version":"0"}},6000000);
-     const parsed=parseNicoPublicProfile(raw,id);for(const key of ["followeeCount","followerCount","userLevel"])if(parsed[key]!==null)value[key]=parsed[key];if(parsed.avatarUrl)value.avatarUrl=parsed.avatarUrl;
+     const parsed=parseNicoPublicProfile(raw,id);for(const key of ["followeeCount","followerCount","userLevel"])if(parsed[key]!==null)value[key]=parsed[key];
      if([value.followeeCount,value.followerCount,value.userLevel].every(v=>v!==null))break;
     }catch(e){value.stage="プロフィール取得: "+diagnostic(e);}
    }
    value.checkedAt=Date.now();
    if(value.followeeCount===null&&value.followerCount===null&&value.userLevel===null)value.stage="公開プロフィール形式未確認";
   }catch(e){value.stage="プロフィール取得: "+diagnostic(e);}
-  if(cached){for(const k of ["followeeCount","followerCount","userLevel"])if(value[k]===null&&Number.isSafeInteger(cached[k]))value[k]=cached[k];value.avatarUrl=nicoAccountAvatarUrl(value.avatarUrl,cached.avatarUrl);}
+  if(cached){for(const k of ["followeeCount","followerCount","userLevel"])if(value[k]===null&&Number.isSafeInteger(cached[k]))value[k]=cached[k];}
   profiles.push(value);
   try{await caches.default.put(key,json(value,200,"public, max-age=900"));}catch{}
  }));
@@ -1241,27 +1217,6 @@ async function shobonThumbnailSnapshot(origin){
  }catch{}
  return rows;
 }
-async function enrichKickAvatars(rows,origin,env){
- const targets=rows.filter(row=>Number.isSafeInteger(row.kickOfficialId)&&row.kickOfficialId>0),missing=[];
- for(const row of targets){
-  const key=new Request(origin+"/__cache/kick-profile-avatar-r90/"+row.kickOfficialId);
-  try{const hit=await caches.default.match(key);if(hit){const data=await hit.json();if(data.userId===row.kickOfficialId){row.avatarUrl=kickAvatarUrl(row.avatarUrl,data.avatarUrl);continue;}}}catch{}
-  if(!row.avatarUrl||/default[-_]|\/defaults?\//i.test(row.avatarUrl))missing.push({row,key});
- }
- if(!missing.length||!env.KICK_CLIENT_ID||!env.KICK_CLIENT_SECRET)return;
- try{
-  const access=await kickToken(env),url=new URL("https://api.kick.com/public/v1/users");
-  for(const id of new Set(missing.map(x=>x.row.kickOfficialId)))url.searchParams.append("id",String(id));
-  const payload=JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}},1024*1024));
-  if(!Array.isArray(payload.data))return;
-  for(const {row,key} of missing){
-   const matched=payload.data.find(u=>officialGiftCount(u.user_id)===row.kickOfficialId);
-   const avatarUrl=kickAvatarUrl(matched?.profile_picture);
-   row.avatarUrl=kickAvatarUrl(row.avatarUrl,avatarUrl);
-   try{await caches.default.put(key,json({userId:row.kickOfficialId,avatarUrl},200,"public, max-age="+(avatarUrl&&!/default[-_]/i.test(avatarUrl)?600:120)));}catch{}
-  }
- }catch{}
-}
 async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
  if(!Array.isArray(data.entries)||!data.entries.length)return data;
  const rows=data.entries.slice(0,10);
@@ -1281,14 +1236,12 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
     const response=JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}},1024*1024));
     // Cache only the public aggregate fields, never account tokens or other metadata.
     if(!Array.isArray(response.data))throw Error("Kick channel format");
-    payload={data:response.data.map(x=>({slug:x.slug,avatarUrl:kickAvatarFrom(x),broadcaster_user_id:officialGiftCount(x.broadcaster_user_id),stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(kickExplicitImage).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
+    payload={data:response.data.map(x=>({slug:x.slug,broadcaster_user_id:officialGiftCount(x.broadcaster_user_id),stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(kickExplicitImage).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
     try{await caches.default.put(key,json(payload,200,"public, max-age=30"));}catch{}
    }
-   for(const row of rows){const channel=payload.data?.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===row.id);row.kickOfficialId=officialGiftCount(channel?.broadcaster_user_id)??row.kickOfficialId;row.avatarUrl=kickAvatarUrl(channel?.avatarUrl,row.avatarUrl);row.giftedSubscriptions=kickGiftedSubs(payload,row.id);row.giftedSubscriptionsStage=row.giftedSubscriptions!=null?"Kick公式API取得済み":channel?"公式APIに有効ギフト数なし":"公式APIに対象チャンネルなし";const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
+   for(const row of rows){const channel=payload.data?.find(x=>typeof x?.slug==="string"&&x.slug.toLowerCase()===row.id);row.kickOfficialId=officialGiftCount(channel?.broadcaster_user_id)??row.kickOfficialId;row.giftedSubscriptions=kickGiftedSubs(payload,row.id);row.giftedSubscriptionsStage=row.giftedSubscriptions!=null?"Kick公式API取得済み":channel?"公式APIに有効ギフト数なし":"公式APIに対象チャンネルなし";const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
   }catch(e){for(const row of rows)row.giftedSubscriptionsStage="公式API: "+diagnostic(e);}
  }
- emit();
- await enrichKickAvatars(rows,origin,env);
  emit();
  await enrichOfficialKickGiftEvents(rows,env);
  emit();
@@ -1305,8 +1258,7 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
   if(!/^[a-z0-9_-]{1,40}$/.test(row.id))return;
   const chatKey=new Request(origin+"/__cache/kick-chat-r85/"+row.id),activeKey=new Request(origin+"/__cache/kick-active-r85/"+row.id),identityKey=new Request(origin+"/__cache/kick-room-r88/"+row.id);
   const attemptKey=new Request(origin+"/__cache/kick-attempt-r85/"+row.id);
-  let [chat,active,attempt,identity]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey),cacheRead(attemptKey),cacheRead(identityKey)]);
-  if(sameStream(row,identity))row.avatarUrl=kickAvatarUrl(row.avatarUrl,identity.avatarUrl);
+  let [chat,active,attempt]=await Promise.all([cacheRead(chatKey),cacheRead(activeKey),cacheRead(attemptKey)]);
   if(!sameStream(row,chat))chat=null;if(!sameStream(row,active))active=null;
   const chatAge=ageOf(chat,"sampledAt"),activeAge=ageOf(active,"activeSampledAt");
   if(chat&&chatAge<=180000)applyChat(row,chat);
@@ -1329,11 +1281,10 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
     if(typeof channel.slug!=="string"||channel.slug.toLowerCase()!==row.id||!kickChatId(channelId)||!/^\d+$/.test(String(channelId))||!live||live.is_live===false)throw Error("channel not verified live");
     const rawStart=live.start_time??live.created_at??live.started_at;
     const startedAt=typeof rawStart==="string"&&Number.isFinite(kickChatTime(rawStart))?new Date(kickChatTime(rawStart)).toISOString():time(rawStart);
-    identity={channelId,room,startedAt,avatarUrl:kickAvatarFrom(channel)};
+    identity={channelId,room,startedAt};
     if(!sameStream(row,identity))throw Error("stream identity mismatch");
     await cachePut(identityKey,identity,120);
    }
-   row.avatarUrl=kickAvatarUrl(row.avatarUrl,identity.avatarUrl);if(row.avatarUrl)emit();
    const sample=await recentKickHistory(async cursor=>{const url=new URL("https://kick.com/api/v2/channels/"+identity.channelId+"/messages");if(cursor)url.searchParams.set("cursor",cursor);return JSON.parse(await fetchBounded(url,{headers:{accept:"application/json"}},1024*1024));},identity.room,Date.parse(identity.startedAt),Date.now,full?600000:30000,onProgress?partial=>{if(partial.chatPartial===false){applyChat(row,{...partial,startedAt:identity.startedAt});emit();}}:null);
    if(!sample)throw Error("公開チャット履歴なし");
    const chat={startedAt:identity.startedAt,receivedComments:sample.receivedComments,chatCounts:sample.chatCounts,chatPartial:sample.chatPartial,chatStage:sample.chatStage,chatWindowSeconds:sample.chatWindowSeconds,sampledAt:sample.sampledAt};
@@ -1778,7 +1729,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r91</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r92</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1832,7 +1783,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r91"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r92"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1844,7 +1795,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r91",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r92",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(url.pathname==="/api/rankings-live"){
   if(request.method!=="GET"||request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return json({status:"error",message:"WebSocket接続のみ対応"},426);
