@@ -12,3 +12,5 @@
 - `/embed/rankings` は同一Workerの独立ランキング表示用ルート。公開データの取得先は引き続き必要。
 - ニコ生アクティブ人数は、公開カードで直近10分の人数が確認できる場合のみ表示する。チャット監視・AI実行環境は導入しない。
 - 添付 live-ranking-source.zip（worker/index.mjs）のランキングHTML解析と公式RSS画像取得を移植。勢いランキングの公開データを追加し、ニコ生の勢いptと来場者数は別々に扱う。独自チャット監視・D1依存・旧サイトAPIは移植しない。
+- r20: 公開視聴ページの番組IDと配信情報WebSocket URLを検証し、統計イベント（adPoints/giftPoints）を不足時のみ短時間受信する。1回の更新につき最大3番組、番組別キャッシュ120秒。コメントサーバー・映像取得・常時接続・ログインは行わず、取得失敗時に数値を推測しない。
+- 参考: https://github.com/streamlink/streamlink/issues/4365 と https://gist.github.com/tor4kichi/c5475c8362ee897911e43c46f0918023 （旧資料のため現行サービスとの互換性は要確認）。
