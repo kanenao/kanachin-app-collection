@@ -304,7 +304,7 @@ function kickImage(value){
 function kickPage(payload){
  if(!Array.isArray(payload?.data))throw Error("Kick応答形式が不正");
  const entries=[];let excluded=0;
- for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(x=>validatedThumb(x,"kick")).find(Boolean)||"",startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
+ for(const r of payload.data){const slug=typeof (r?.channel?.slug??r?.slug)==="string"?(r.channel?.slug??r.slug).toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof (r.language_code??r.language)==="string"?(r.language_code??r.language):"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||r.stream_title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(kickExplicitImage).find(Boolean)||"",thumbnailCandidates:kickFrameCandidates(r).map(kickExplicitImage).filter(Boolean),thumbnailVerified:true,startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
  const cursor=payload.pagination?.next_cursor; if(cursor!=null&&(typeof cursor!=="string"||cursor.length>2048))throw Error("Kickページ情報が不正");
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
@@ -652,7 +652,7 @@ async function enrichKickPublicMetrics(data,origin,env){
  // Batch top ten only; cache channel totals for two minutes.
  if(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET){
   try{
-   const key=new Request(origin+"/__cache/kick-channels-r35/"+rows.map(r=>r.id).sort().join(","));
+   const key=new Request(origin+"/__cache/kick-channels-r37/"+rows.map(r=>r.id).sort().join(","));
    const cached=await caches.default.match(key);let payload;
    if(cached)payload=await cached.json();
    else{
@@ -660,10 +660,10 @@ async function enrichKickPublicMetrics(data,origin,env){
     for(const row of rows)if(/^[a-z0-9_-]{1,40}$/.test(row.id))url.searchParams.append("slug",row.id);
     const response=JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+access,accept:"application/json"}},1024*1024));
     // Cache only the public aggregate fields, never account tokens or other metadata.
-    payload={data:(Array.isArray(response.data)?response.data:[]).map(x=>({slug:x.slug,stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(v=>validatedThumb(v,"kick")).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
+    payload={data:(Array.isArray(response.data)?response.data:[]).map(x=>({slug:x.slug,stream:{is_live:x.stream?.is_live,start_time:x.stream?.start_time,thumbnail:kickFrameCandidates(x.stream).map(kickExplicitImage).filter(Boolean)[0]||""},active_gifted_subscribers_count:x.active_gifted_subscribers_count}))};
     try{await caches.default.put(key,json(payload,200,"public, max-age=30"));}catch{}
    }
-   for(const row of rows){row.giftedSubscriptions=kickGiftedSubs(payload,row.id);const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(v=>validatedThumb(v,"kick")).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;}if(!row.startedAt&&started)row.startedAt=started;}
+   for(const row of rows){row.giftedSubscriptions=kickGiftedSubs(payload,row.id);const stream=kickChannelLiveRow(payload,row.id);if(!stream)continue;const started=time(stream.start_time),known=time(row.startedAt);if(started&&known&&Math.abs(Date.parse(started)-Date.parse(known))>60000)continue;const images=kickFrameCandidates(stream).map(kickExplicitImage).filter(Boolean);if(images.length){row.thumbnail=images[0];row.thumbnailCandidates=images;row.thumbnailVerified=true;}if(!row.startedAt&&started)row.startedAt=started;}
   }catch{}
  }
  // Recent public chat snapshots only: no WebSocket, webhook, user records, or chat archive.
@@ -704,6 +704,16 @@ async function resolveNicoProfile(request){
 function imageCandidates(...items){
  const out=[];const walk=(v,depth)=>{if(typeof v==="string"){out.push(v.replaceAll("&amp;","&"));return;}if(!v||typeof v!=="object"||depth>3)return;for(const k of ["screenshot","urlSet","urls","large","huge","middle","small","normal","url","uri","src","uri640x360","uri320x180","uri160x90"])if(Object.prototype.hasOwnProperty.call(v,k))walk(v[k],depth+1);};
  for(const item of items)walk(item,0);return [...new Set(out)].slice(0,24);
+}
+function kickExplicitImage(raw){
+ if(typeof raw!=="string"||raw.length>2048)return "";
+ try{const u=new URL(raw.trim().replaceAll("&amp;","&"));if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||/profile|avatar|usericon|channel-icon|category|banner|\/icons?\//i.test(u.pathname))return "";return u.hostname==="kick.com"||u.hostname.endsWith(".kick.com")?u.href:"";}catch{return "";}
+}
+function kickProxyImage(raw){
+ const value=kickExplicitImage(raw);
+ if(!value)return "";
+ const u=new URL(value);
+ return ["images.kick.com","files.kick.com","stream.kick.com"].includes(u.hostname)&&(/\.(?:webp|jpe?g|png|gif|avif)$/i.test(u.pathname)||/\/(?:video_thumbnails|thumbnails|thumbnail)\//i.test(u.pathname))?value:"";
 }
 function kickFramePath(host,path){
  return (host==="images.kick.com"&&/^\/video_thumbnails\/[a-z0-9_-]+\/[a-z0-9_-]+\/[^/]+\.(?:webp|jpe?g|png)$/i.test(path))||
@@ -772,14 +782,15 @@ async function resolveThumbnailCandidates(type,id,rows){
     if([live.slug,live.channel?.slug,payload.channel?.slug].some(x=>typeof x==="string"&&x.toLowerCase()!==id))continue;
     const liveStart=time(live.start_time??live.started_at??live.created_at),knownStart=time(known?.startedAt);if(liveStart&&knownStart&&Math.abs(Date.parse(liveStart)-Date.parse(knownStart))>60000)continue;
     const candidates=kickFrameCandidates(live);
-    if(candidates.some(v=>validatedThumb(v,type)))return [...new Set([...candidates,...fromRank])];
+    if(candidates.some(v=>kickProxyImage(v)||validatedThumb(v,type)))return [...new Set(candidates.map(v=>kickProxyImage(v)||validatedThumb(v,type)).filter(Boolean))];
    }catch{}
   }
  }
- return fromRank;
+ return type==="kick"?fromRank.map(v=>validatedThumb(v,"kick")).filter(Boolean):fromRank;
 }
-async function thumbnailResponse(raw,type,preview=false){
- let url=validatedThumb(raw,type);if(!url)return null;
+async function thumbnailResponse(raw,type,preview=false,verified=false){
+ const validate=value=>validatedThumb(value,type)||(type==="kick"&&verified?kickProxyImage(value):"");
+ let url=validate(raw);if(!url)return null;
  const signal=AbortSignal.timeout(6000);
  try{
   let response;
@@ -787,7 +798,7 @@ async function thumbnailResponse(raw,type,preview=false){
    response=await fetch(url,{signal,redirect:"manual",...(preview?{cache:"no-store"}:{}),headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?"https://live.nicovideo.jp/":"https://kick.com/"}});
    if(![301,302,303,307,308].includes(response.status))break;
    const location=response.headers.get("location");if(response.body)await response.body.cancel();if(!location)return null;
-   url=validatedThumb(new URL(location,url).href,type);if(!url)return null;
+   url=validate(new URL(location,url).href);if(!url)return null;
   }
   const contentType=(response.headers.get("content-type")||"").split(";")[0].toLowerCase();
   if(!response.ok||!/^image\/(jpeg|png|webp|gif|avif)$/.test(contentType)||Number(response.headers.get("content-length")||0)>2097152||!response.body){if(response.body)await response.body.cancel();return null;}
@@ -803,7 +814,7 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r36":"r35")+"/"+type+"/"+id+(preview?"/preview":""));
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r36":"r37")+"/"+type+"/"+id+(preview?"/preview":""));
  const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r36/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
@@ -824,11 +835,11 @@ async function liveThumbnail(request){
  }
  // Prefer already observed program images; resolve from fixed public endpoints if unavailable.
  let attempted=new Set(),workingSource="";
- async function tryImages(images){
-  for(const raw of images){const candidate=validatedThumb(raw,type);if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:4))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type);if(response){workingSource=candidate;return response;}}return null;
+ async function tryImages(images,verified=false){
+  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||attempted.has(candidate)||attempted.size>=(type==="nico"?6:4))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
  }
- let result=await tryImages(rankImages.slice(0,2));
- if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows));
+ let result=await tryImages(rankImages.slice(0,3),type==="kick"&&known.thumbnailVerified===true);
+ if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows),type==="kick");
  if(!result)result=new Response(null,{status:404,headers:{"cache-control":"public, max-age=25"}});
  if(type==="nico"&&workingSource){try{await caches.default.put(sourceKey,json({url:workingSource},200,"public, max-age=120"));}catch{}}
  try{await caches.default.put(key,result.clone());}catch{}
@@ -839,7 +850,7 @@ export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r36",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r37",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
