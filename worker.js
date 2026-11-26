@@ -283,7 +283,7 @@ function kickImage(value){
 function kickPage(payload){
  if(!Array.isArray(payload?.data))throw Error("Kick応答形式が不正");
  const entries=[];let excluded=0;
- for(const r of payload.data){const slug=typeof r?.channel?.slug==="string"?r.channel.slug.toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof r.language_code==="string"?r.language_code:"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||"タイトルなし").slice(0,250),viewers,thumbnail:imageCandidates(r.thumbnail,r.thumbnail_url).map(x=>validatedThumb(x,"kick")).find(Boolean)||"",startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
+ for(const r of payload.data){const slug=typeof r?.channel?.slug==="string"?r.channel.slug.toLowerCase():"";const viewers=r?.viewer_count;if(!/^[a-z0-9_-]{1,40}$/.test(slug)||!Number.isSafeInteger(viewers)||viewers<0){excluded++;continue;}const language=typeof r.language_code==="string"?r.language_code:"";if(!language){excluded++;continue;}if(!/^ja(?:-|$)/i.test(language))continue;entries.push({id:slug,name:String(r.broadcaster_user?.username||slug).slice(0,100),title:String(r.title||"タイトルなし").slice(0,250),viewers,thumbnail:kickFrameCandidates(r).map(x=>validatedThumb(x,"kick")).find(Boolean)||"",startedAt:typeof r.started_at==="string"?r.started_at:"",url:"https://kick.com/"+slug});}
  const cursor=payload.pagination?.next_cursor; if(cursor!=null&&(typeof cursor!=="string"||cursor.length>2048))throw Error("Kickページ情報が不正");
  return {entries,cursor:cursor||null,complete:cursor===null||cursor==="",excluded};
 }
@@ -684,11 +684,30 @@ function imageCandidates(...items){
  const out=[];const walk=(v,depth)=>{if(typeof v==="string"){out.push(v.replaceAll("&amp;","&"));return;}if(!v||typeof v!=="object"||depth>3)return;for(const k of ["screenshot","urlSet","urls","large","huge","middle","small","normal","url","uri","src","uri640x360","uri320x180","uri160x90"])if(Object.prototype.hasOwnProperty.call(v,k))walk(v[k],depth+1);};
  for(const item of items)walk(item,0);return [...new Set(out)].slice(0,24);
 }
+function kickFramePath(host,path){
+ return (host==="images.kick.com"&&/^\/video_thumbnails\/[^/]+\/[^/]+\/[^/]+\.(?:webp|jpe?g|png)$/i.test(path))||
+ (["stream.kick.com","files.kick.com","kick-prod-videos-30-day.s3.us-west-2.amazonaws.com"].includes(host)&&/^\/thumbnails\/livestream\/.+\/video_thumbnail\/.+\.(?:webp|jpe?g|png)$/i.test(path));
+}
+function kickFrameCandidates(live){
+ if(!live||typeof live!=="object"||live.is_live===false)return [];
+ const values=[];
+ for(const v of [live.thumbnail,live.thumbnail_url,live.thumbnailUrl]){
+  if(typeof v==="string")values.push(v);
+  else if(v&&typeof v==="object"){
+   for(const k of ["url","src","link"])if(typeof v[k]==="string")values.push(v[k]);
+   if(typeof v.responsive==="string"){
+    const parts=[...v.responsive.matchAll(/(https:\/\/[^\s,]+)\s+(\d+)w(?:\s*,|$)/g)].map(m=>({url:m[1],width:Number(m[2])}));
+    parts.sort((a,b)=>Math.abs(a.width-480)-Math.abs(b.width-480));values.push(...parts.slice(0,3).map(x=>x.url));
+   }
+  }
+ }
+ return [...new Set(values)].slice(0,8);
+}
 function validatedThumb(value,type){
  if(typeof value!=="string"||value.length>2048)return "";
  try{const u=new URL(value.startsWith("//")?"https:"+value:value);const host=u.hostname.toLowerCase();
   if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||/profile|avatar|usericon|user-icon|channel-icon|\/icons?\//i.test(u.pathname))return "";
-  const ok=type==="nico"?["nimg.jp","simg.jp"].some(x=>host===x||host.endsWith("."+x)):["images.kick.com","files.kick.com","stream.kick.com"].some(x=>host===x);
+  const ok=type==="nico"?["nimg.jp","simg.jp"].some(x=>host===x||host.endsWith("."+x)):kickFramePath(host,u.pathname);
   return ok?u.href:"";
  }catch{return "";}
 }
@@ -720,9 +739,10 @@ async function resolveThumbnailCandidates(type,id,rows){
     if(payload.slug&&String(payload.slug).toLowerCase()!==id)continue;
     const live=payload.livestream??payload.data?.livestream??payload.data??(suffix?payload:null);
     if(!live||live.is_live===false)continue;
-    if(live.slug&&live.slug!==id&&live.channel?.slug&&live.channel.slug!==id)continue;
-    const candidates=imageCandidates(live.thumbnail,live.thumbnail_url,live.thumbnailUrl);
-    if(candidates.some(v=>validatedThumb(v,type)))return [...new Set([...candidates,...fromRank])];
+    if([live.slug,live.channel?.slug,payload.channel?.slug].some(x=>typeof x==="string"&&x.toLowerCase()!==id))continue;
+    const liveStart=time(live.start_time??live.started_at??live.created_at),knownStart=time(known?.startedAt);if(liveStart&&knownStart&&Math.abs(Date.parse(liveStart)-Date.parse(knownStart))>60000)continue;
+    const candidates=kickFrameCandidates(live);
+    if(candidates.some(v=>validatedThumb(v,type)))return [...new Set(candidates)];
    }catch{}
   }
  }
@@ -745,14 +765,14 @@ async function thumbnailResponse(raw,type){
   try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152){await reader.cancel();return null;}chunks.push(value);}}finally{reader.releaseLock();}
   if(!total)return null;
   const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":"public, max-age=60","x-content-type-options":"nosniff"}});
+  return new Response(bytes,{headers:{"content-type":contentType,"cache-control":type==="kick"?"public, max-age=30":"public, max-age=60","x-content-type-options":"nosniff"}});
  }catch{return null;}
 }
 async function liveThumbnail(request){
  const url=new URL(request.url),type=url.searchParams.get("service"),id=url.searchParams.get("id")||"";
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
- const key=new Request(url.origin+"/__cache/live-thumbnail-r30/"+type+"/"+id);
+ const key=new Request(url.origin+"/__cache/live-thumbnail-r33/"+type+"/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
@@ -766,8 +786,8 @@ async function liveThumbnail(request){
  async function tryImages(images){
   for(const raw of images){const candidate=validatedThumb(raw,type);if(!candidate||attempted.has(candidate)||attempted.size>=4)continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type);if(response)return response;}return null;
  }
- let result=await tryImages(rankImages.slice(0,2));
- if(!result)result=await tryImages(await resolveThumbnailCandidates(type,id,rows));
+ let result=type==="kick"?await tryImages(await resolveThumbnailCandidates(type,id,rows)):await tryImages(rankImages.slice(0,2));
+ if(!result&&type==="nico")result=await tryImages(await resolveThumbnailCandidates(type,id,rows));
  if(!result)result=new Response(null,{status:404,headers:{"cache-control":"public, max-age=25"}});
  try{await caches.default.put(key,result.clone());}catch{}
  return result;
@@ -777,7 +797,7 @@ export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r32",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r33",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
