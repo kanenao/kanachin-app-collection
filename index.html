@@ -55,10 +55,10 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <article class="app " data-repo="kananeo-nico-live-stream"><div class="app-head"><div class="logo" aria-hidden="true">S</div><div><div class="category">ニコニコ生放送 / 配信管理</div><h3>kananeo nico live stream</h3></div></div><p class="desc">放送枠管理、コメント管理、動画リクエスト、配信支援。</p><div class="buttons"><a class="primary" href="https://github.com/kanenao/kananeo-nico-live-stream/releases">ダウンロード</a><a href="https://github.com/kanenao/kananeo-nico-live-stream">詳細・GitHub</a></div><dl class="versions"><div class="version-row"><dt>正規版</dt><dd data-channel="stable">確認中</dd></div><div class="version-row"><dt>β版</dt><dd data-channel="beta">確認中</dd></div><div class="version-row" hidden><dt>α版</dt><dd data-channel="preview"></dd></div></dl></article>
 </div><p id="empty" hidden>該当するアプリがありません。</p></section>
 
-<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各取得元の上位10番組を独自総合スコアで再順位付け（全配信の順位ではありません）。10秒間隔で更新。未取得項目は全候補の採点から外し、暫定順位とします。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
+<section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-title">LIVE配信ランキング</h2></div><div class="rank-actions"><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各取得元の上位10番組を独自総合スコアで再順位付け（全配信の順位ではありません）。共有ライブ接続で取得した数値を順次反映。配信元の定期取得が必要な項目はサーバー側で共有取得します。未取得項目は全候補の採点から外し、暫定順位とします。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><p class="hint" id="rank-live-status" role="status" aria-live="polite">共有ライブ接続準備中…</p><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r79 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r80 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -248,7 +248,7 @@ function compareRanking(current,previous,type){
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r79";
+const rankingRevision="2026.11.27-r80";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -419,7 +419,7 @@ function mergeNicoStatsRecord(old,row,now){
 }
 function rescoreNico(base,now){
  const entries=[...base.entries].sort((a,b)=>(a.sourceRank??0)-(b.sourceRank??0)).map(mergeNicoSupplement);
- const ranked=scoreOverall(entries,"nico",now),metric="総合勢い r79 / "+ranked.keys;
+ const ranked=scoreOverall(entries,"nico",now),metric="総合勢い r80 / "+ranked.keys;
  const history=rankingHistory.get("nico");
  const data={...base,entries:ranked.entries,metric,overallUsed:ranked.used,overallTotal:ranked.total,overallWeight:ranked.weight};
  const prior=previousRankSnapshot(history,data),oldRanks=new Map((prior?.entries||[]).map((r,i)=>[r.id,r.rank??i+1]));
@@ -507,18 +507,18 @@ function acceptRankFrame(panel,data,previous,progress=false){
  if(progress&&type==="kick")data=mergeKickProgress(data,previous,now);
  const history=latestSavedHistory(validateRankHistory(rankingHistory.get(type),type,now),readRankHistory(type,now));
  data.sourceMetric=data.metric;
- data.metric="総合勢いランキング r79";
+ data.metric="総合勢いランキング r80";
  if(type==="nico")data.entries=data.entries.map(mergeNicoSupplement);
  const before=previous?.sourceMetric===data.sourceMetric?previous:null;
  const ranked=scoreOverall(compareRanking(data,before,type),type,now);
  data.entries=ranked.entries;data.overallUsed=ranked.used;data.overallTotal=ranked.total;data.overallWeight=ranked.weight;
- data.metric="総合勢い r79 / "+ranked.keys;
+ data.metric="総合勢い r80 / "+ranked.keys;
  const prior=before?.metric===data.metric?before:previousRankSnapshot(history,data);
  const oldRanks=new Map((prior?.entries||[]).map((r,i)=>[r.id,r.rank??i+1]));
  data.entries=data.entries.map((r,i)=>({...r,previousRank:oldRanks.get(r.id)??null,rankChange:oldRanks.has(r.id)?oldRanks.get(r.id)-i-1:null}));
  const at=Date.parse(data.fetchedAt),older=history?{...history,samples:history.samples.filter(x=>x.at<at)}:null;
  const updated=recordRankHistory(older,data,type);rankingHistory.set(type,updated);saveRankHistory(type,updated);
- data.progress=progress;rankPrevious.set(type,data);renderRanking(panel,data);if(type==="nico")refreshNicoStatistics();
+ data.progress=progress;rankPrevious.set(type,data);renderRanking(panel,data);if(type==="nico"&&!liveSocketOpen())refreshNicoStatistics();
 }
 async function readKickRankFrames(res,apply){
  if(!res.headers.get("content-type")?.includes("application/x-ndjson")||!res.body){apply(await res.json(),false);return;}
@@ -545,8 +545,36 @@ async function loadRanking(force=false){
   finally{rankBusy.delete(type);button.disabled=rankBusy.size>0;}
  }));
 }
-document.querySelector("#rank-refresh").addEventListener("click",()=>{checkRankingHealth();loadRanking(true);});
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadRanking();});
-checkRankingHealth();loadRanking();setInterval(loadRanking,10000);setInterval(refreshNicoStatistics,10000);
+let liveSocket=null,liveRetry=null,liveAttempts=0,liveGeneration=0;
+const liveBaselines=new Map();
+const liveStatus=message=>{document.querySelector("#rank-live-status").textContent=message;};
+function liveSocketOpen(){return liveSocket?.readyState===WebSocket.OPEN;}
+function liveFrame(frame){
+ if(frame.kind==="state"){liveStatus(frame.data?.message||"共有ライブ接続中");if(frame.data?.paused)for(const panel of rankPanels){const old=rankPrevious.get(panel.dataset.platform);if(old)renderRanking(panel,old,true);}return;}
+ if(frame.kind==="nico-stats"){const panel=rankPanels.find(p=>p.dataset.platform==="nico");if(panel)applyNicoStatistics(frame.data,panel);return;}
+ if(!["nico","kick"].includes(frame.kind)||!frame.data)return;
+ const type=frame.kind,panel=rankPanels.find(p=>p.dataset.platform===type),data=frame.data,at=Date.parse(data.fetchedAt);
+ if(!panel||!Number.isFinite(at))return;
+ const current=rankPrevious.get(type);
+ if(current&&at<Date.parse(current.fetchedAt))return;
+ let baseline=liveBaselines.get(type);
+ if(!baseline||baseline.at!==at){baseline={at,previous:current&&Date.parse(current.fetchedAt)<at?current:null};liveBaselines.set(type,baseline);}
+ try{acceptRankFrame(panel,data,baseline.previous,type==="kick"&&!data.done&&!data.stale);}catch{}
+}
+function connectLive(){
+ if(document.hidden||liveSocketOpen()||liveSocket?.readyState===WebSocket.CONNECTING)return;
+ clearTimeout(liveRetry);liveRetry=null;
+ const generation=++liveGeneration,url=new URL("/api/rankings-live",location.href);url.protocol=location.protocol==="https:"?"wss:":"ws:";
+ liveStatus("共有ライブ接続中…");
+ try{const ws=new WebSocket(url);liveSocket=ws;
+  ws.addEventListener("open",()=>{if(generation!==liveGeneration)return;liveAttempts=0;liveStatus("共有ライブ接続済み");});
+  ws.addEventListener("message",e=>{if(generation!==liveGeneration||typeof e.data!=="string"||e.data.length>1048576)return;try{liveFrame(JSON.parse(e.data));}catch{}});
+  ws.addEventListener("error",()=>{try{ws.close();}catch{}});
+  ws.addEventListener("close",()=>{if(generation!==liveGeneration)return;liveSocket=null;liveStatus("共有接続切断・手動更新可能");if(!document.hidden&&liveAttempts<6){const delay=Math.min(60000,2000*2**liveAttempts++);liveRetry=setTimeout(connectLive,delay);}});
+ }catch{liveSocket=null;liveStatus("共有接続できません・手動更新可能");}
+}
+document.querySelector("#rank-refresh").addEventListener("click",()=>{checkRankingHealth();if(liveSocketOpen()){liveSocket.send("refresh");liveStatus("共有データ更新要求済み");}else{loadRanking(true);liveAttempts=0;connectLive();}});
+document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(liveRetry);liveRetry=null;++liveGeneration;try{liveSocket?.close();}catch{}liveSocket=null;}else{liveAttempts=0;connectLive();}});
+checkRankingHealth();connectLive();
 </script>
 </body></html>
