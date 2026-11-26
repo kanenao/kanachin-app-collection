@@ -502,7 +502,7 @@ function statisticsEndpoint(data,id){
  if(status&&!["ON_AIR","ONAIR","LIVE","ON AIR"].includes(status))return null;
  try{
   const u=new URL(data.site.relive.webSocketUrl);
-  if(u.protocol!=="wss:"||u.username||u.password||u.port||u.hash||!/^([a-z0-9-]+\.)*live2\.nicovideo\.jp$/i.test(u.hostname)||!/^\/unama\/wsapi\/v2\/watch\/\d+\/?$/.test(u.pathname))return null;
+  if(u.protocol!=="wss:"||u.username||u.password||u.port||u.hash||!/^([a-z0-9-]+\.)*live2\.nicovideo\.jp$/i.test(u.hostname)||!/^\/(?:unama\/)?wsapi\/v2\/watch\/\d+\/?$/.test(u.pathname))return null;
   if(Number.isSafeInteger(data.site.frontendId)&&data.site.frontendId>0)u.searchParams.set("frontend_id",String(data.site.frontendId));
   u.protocol="https:";return u.href;
  }catch{return null;}
@@ -549,45 +549,56 @@ async function* activityFrames(url,signal){
 }
 // Adapted from the uploaded worker/activity.mjs. One closed history snapshot,
 // no continuous listener, no persisted comment contents or sender identifiers.
+
 async function sampleNicoActivity(raw){
  const view=activityFeedUrl(raw);if(!view)return null;
- const signal=AbortSignal.timeout(12000),now=Math.floor(Date.now()/1000),decode=b=>activityFeedUrl(new TextDecoder().decode(b));
- view.searchParams.set("at","now");let segment=null;
+ const signal=AbortSignal.timeout(12000),now=Math.floor(Date.now()/1000);
+ const decode=b=>b instanceof Uint8Array?activityFeedUrl(new TextDecoder().decode(b)):null;
+ const stamp=b=>b instanceof Uint8Array?Number(activityFields(b).get(1)):NaN;
+ view.searchParams.set("at","now");
+ let back=null,previous=null,events=[],unknownTime=false;
+ function record(chunk){
+  if(!chunk.has(2))return;
+  const message=activityFields(chunk.get(2)),raw=message.get(1)||message.get(20);if(!raw)return;
+  const meta=chunk.get(1);const at=meta instanceof Uint8Array?stamp(activityFields(meta).get(2)):NaN;
+  if(!Number.isSafeInteger(at)){unknownTime=true;return;}
+  if(at<now-900||at>now+2)return;
+  const chat=activityFields(raw),sender=typeof chat.get(5)==="bigint"&&chat.get(5)>0n?"u"+String(chat.get(5)):chat.get(6) instanceof Uint8Array&&chat.get(6).length?"h"+new TextDecoder().decode(chat.get(6)):null;
+  if(events.length>=20000)throw Error("too many comments");events.push({at,sender});
+ }
  try{
+  // Keep this bounded view iterator open during retrieval of its completed segments.
   for await(const e of activityFrames(view,signal)){
-   if(e.has(2)){
-    const back=activityFields(e.get(2)),end=Number(activityFields(back.get(1)).get(1));
-    if(end<=now+2&&end>=now-180&&back.has(2)){const url=decode(activityFields(back.get(2)).get(1));if(url){segment={end,url,packed:true};break;}}
+   if(e.has(2)){const entry=activityFields(e.get(2)),end=stamp(entry.get(1)),url=entry.has(2)?decode(activityFields(entry.get(2)).get(1)):null;
+    if(url&&end<=now+2&&end>=now-180)back={end,url};}
+   if(e.has(3)){const info=activityFields(e.get(3)),start=stamp(info.get(1)),end=stamp(info.get(2)),url=decode(info.get(3));
+    if(url&&start<end&&end<=now&&end>=now-180)previous={start,end,url};}
+   if(!e.has(4))continue;
+   if(!back&&!previous)return null;
+   // Join only contiguous completed intervals. Do not claim coverage of live segments.
+   const joined=back&&previous&&previous.start<=back.end&&previous.end>=back.end;
+   const sampleEnd=joined?previous.end:back?back.end:previous.end;
+   let covered=sampleEnd;
+   if(joined||!back){for await(const chunk of activityFrames(previous.url,signal))record(chunk);covered=previous.start;}
+   if(back){
+    let url=back.url,oldest=back.end;const seen=new Set();
+    for(let i=0;url&&i<6;i++){
+     if(seen.has(url.href))throw Error("repeated history");seen.add(url.href);
+     const packet=activityFields(await activityBytes(url,signal),1,b=>{
+      const chunk=activityFields(b);if(!chunk.has(1))return;
+      const at=stamp(activityFields(chunk.get(1)).get(2));if(!Number.isSafeInteger(at)){if(chunk.has(2))unknownTime=true;return;}
+      oldest=Math.min(oldest,at);record(chunk);
+     });
+     covered=Math.min(covered,oldest);if(covered<=sampleEnd-600)break;
+     url=packet.has(2)?decode(activityFields(packet.get(2)).get(1)):null;
+    }
    }
-   if(e.has(4)&&segment)break;
-   const raw=e.get(3);if(!raw)continue;
-   const info=activityFields(raw),start=Number(activityFields(info.get(1)).get(1)),end=Number(activityFields(info.get(2)).get(1)),url=decode(info.get(3));
-   if(url&&start<end&&end<=now&&end>=now-180){segment={start,end,url,packed:false};}
+   if(unknownTime)return null;
+   return {...activityAggregate(events,sampleEnd,covered),activitySampleEnd:sampleEnd};
   }
-  if(!segment)return null;
-  const events=[];let covered=segment.end,unknownTime=false;
-  function record(chunk){
-   if(!chunk.has(2))return;
-   const message=activityFields(chunk.get(2)),raw=message.get(1)||message.get(20);if(!raw)return;
-   const at=Number(activityFields(activityFields(chunk.get(1)).get(2)).get(1));if(!Number.isSafeInteger(at)){unknownTime=true;return;}
-   if(at<segment.end-600||at>segment.end)return;
-   const chat=activityFields(raw),sender=typeof chat.get(5)==="bigint"&&chat.get(5)>0n?"u"+String(chat.get(5)):chat.get(6)?.length?"h"+new TextDecoder().decode(chat.get(6)):null;
-   if(events.length>=20000)throw Error("too many comments");events.push({at,sender});
-  }
-  if(segment.packed){
-   let url=segment.url,oldest=segment.end,seen=new Set();
-   for(let i=0;url&&i<6;i++){
-    if(seen.has(url.href))throw Error("repeated history");seen.add(url.href);
-    const packet=activityFields(await activityBytes(url,signal),1,b=>{const chunk=activityFields(b),at=Number(activityFields(activityFields(chunk.get(1)).get(2)).get(1));if(!Number.isSafeInteger(at)){unknownTime=true;return;}oldest=Math.min(oldest,at);record(chunk);});
-    covered=oldest;if(covered<=segment.end-600)break;
-    url=packet.has(2)?decode(activityFields(packet.get(2)).get(1)):null;
-   }
-  }else{for await(const chunk of activityFrames(segment.url,signal))record(chunk);covered=segment.start;}
-  if(unknownTime)return null;
-  return {...activityAggregate(events,segment.end,covered),activitySampleEnd:segment.end};
+  return null;
  }catch{return null;}
 }
-
 async function fetchNicoStatistics(endpoint,wantActivity=false){
  if(!endpoint)return null;
  let ws;
@@ -595,16 +606,27 @@ async function fetchNicoStatistics(endpoint,wantActivity=false){
   const response=await fetch(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},redirect:"error",signal:AbortSignal.timeout(4000)});
   ws=response.webSocket;if(!ws)return null;
   return await new Promise(resolve=>{
-   let done=false,latest=null,timer,viewUri=null;
-   function finish(){if(done)return;done=true;clearTimeout(timer);try{ws.close(1000,"statistics complete");}catch{}resolve(latest||viewUri?{...latest,viewUri}:null);}
-   function send(value){try{ws.send(JSON.stringify(value));}catch{finish();}}
-   timer=setTimeout(finish,8000);
+   let done=false,latest=null,timer,viewReceived=false,activityRunning=false,activity=null,activityStage="";
+   function finish(){if(done)return;done=true;clearTimeout(timer);try{ws.close(1000,"statistics complete");}catch{}resolve(latest||viewReceived?{...latest,...activity,activityStage:activityStage||"コメント履歴接続先未取得"}:null);}
+   function maybeFinish(){if(latest?.advertising!=null&&latest?.gift!=null&&(!wantActivity||(viewReceived&&!activityRunning)))finish();}
+   function send(value){if(done)return;try{ws.send(JSON.stringify(value));}catch{finish();}}
+   timer=setTimeout(finish,wantActivity?22000:8000);
    ws.addEventListener("close",finish);ws.addEventListener("error",finish);
    ws.addEventListener("message",event=>{
+    if(done)return;
     const stat=parseStatsMessage(event.data);
-    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};if(latest.advertising!==null&&latest.gift!==null&&(!wantActivity||viewUri))finish();return;}
+    if(stat){latest={advertising:stat.advertising??latest?.advertising??null,gift:stat.gift??latest?.gift??null,visitors:stat.visitors??latest?.visitors??null,comments:stat.comments??latest?.comments??null};maybeFinish();return;}
     if(typeof event.data!=="string"||event.data.length>65536)return;
-    try{const message=JSON.parse(event.data);if(message.type==="ping"){send({type:"pong"});send({type:"keepSeat"});}else if(message.type==="messageServer"&&wantActivity){const view=activityFeedUrl(message.data?.viewUri);if(view){viewUri=view.href;if(latest?.advertising!=null&&latest?.gift!=null)finish();}}else if(message.type==="disconnect"||message.type==="error")finish();}catch{}
+    try{
+     const message=JSON.parse(event.data);
+     if(message.type==="ping"){send({type:"pong"});send({type:"keepSeat"});}
+     else if(message.type==="messageServer"&&wantActivity&&!viewReceived){
+      const view=activityFeedUrl(message.data?.viewUri);
+      if(view){viewReceived=true;activityRunning=true;activityStage="コメント履歴取得中";
+       sampleNicoActivity(view.href).then(result=>{if(done)return;activity=result;activityRunning=false;activityStage=result?(result.active10m==null?"10分履歴不足":"10分履歴取得済み"):"コメント履歴取得失敗";maybeFinish();}).catch(()=>{if(done)return;activityRunning=false;activityStage="コメント履歴取得失敗";maybeFinish();});
+      }
+     }else if(message.type==="disconnect"||message.type==="error")finish();
+    }catch{}
    });
    try{ws.accept();send({type:"startWatching",data:{stream:{quality:"abr",protocol:"hls",latency:"high",chasePlay:false},room:{protocol:"webSocket",commentable:true},reconnect:false}});}catch{finish();}
   });
@@ -938,7 +960,7 @@ async function liveThumbnail(request){
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
- for(const suffix of ["?revision=r43","?last-good=r43"]){
+ for(const suffix of ["?revision=r44","?last-good=r44"]){
   try{const response=await caches.default.match(new Request(url.origin+"/api/rankings/"+type+suffix));const data=response&&await response.json();if(Array.isArray(data?.entries)&&data.entries.some(x=>x.id===id)){rows=data.entries;break;}}catch{}
  }
  if(!rows.length)return new Response(null,{status:404,headers:{"cache-control":"no-store"}});
@@ -980,7 +1002,7 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r42/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r44/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push(saved);continue;}
   const fields=statisticsFields(row);
@@ -1003,11 +1025,7 @@ async function nicoSupplementalStatistics(request){
      result.stage=stat?"公式統計受信・項目未取得":"公式統計通信失敗";
      if(stat){
       Object.assign(result,statisticsFields(stat));
-      if(wantActivity&&stat.viewUri){
-       const activity=await sampleNicoActivity(stat.viewUri);
-       if(activity){Object.assign(result,statisticsFields(activity));result.stage=result.active10m==null?"10分履歴不足":"10分履歴取得済み";}
-       else result.stage="コメント履歴取得失敗";
-      }else if(wantActivity)result.stage="コメント履歴接続先未取得";
+      if(wantActivity)result.stage=stat.activityStage||"コメント履歴接続先未取得";
      }
     }
    }
@@ -1024,11 +1042,11 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r43",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r44",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
- const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r43"),backup=new Request(url.origin+url.pathname+"?last-good=r43");
+ const type=match[1],key=new Request(url.origin+url.pathname+"?revision=r44"),backup=new Request(url.origin+url.pathname+"?last-good=r44");
  async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
