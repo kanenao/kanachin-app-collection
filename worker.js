@@ -657,13 +657,23 @@ async function* activityFrames(url,signal){
 // Adapted from the uploaded worker/activity.mjs. One closed history snapshot,
 // no continuous listener, no persisted comment contents or sender identifiers.
 
+function recentActivityCount(events,start,end){
+ if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start>=end||end-start>600)return {};
+ const ids=new Set();
+ for(const event of events){
+  if(event.at<=start||event.at>end)continue;
+  if(!event.sender)return {};
+  ids.add(event.sender);
+ }
+ return {activeRecent:ids.size,activityRecentSeconds:end-start,activityRecentEnd:end};
+}
 async function sampleNicoActivity(raw,startedAt){
  const view=activityFeedUrl(raw);if(!view)return {activityStage:"履歴URL未対応"};
  const signal=AbortSignal.timeout(19000),now=Math.floor(Date.now()/1000);
  const decode=b=>b instanceof Uint8Array?activityFeedUrl(new TextDecoder().decode(b)):null;
  const stamp=b=>b instanceof Uint8Array?Number(activityFields(b).get(1)):NaN;
  view.searchParams.set("at","now");
- let back=null,previous=null,events=[],unknownTime=false,historyStage="履歴接続中",exhausted=false;
+ let back=null,previous=null,events=[],unknownTime=false,historyStage="履歴接続中",exhausted=false,partial=null;
  function record(chunk){
   if(!chunk.has(2))return;
   const message=activityFields(chunk.get(2)),raw=message.get(1)||message.get(20);if(!raw)return;
@@ -703,26 +713,46 @@ async function sampleNicoActivity(raw,startedAt){
   // MessageStream supports both segment (field 1) and previous (field 3).
   // When now supplies only a cursor/forward entries, request a bounded
   // historical view using the same public view URI and numeric at.
-  const readView=async(at)=>{
+  const readView=async(at,firstClosed=false)=>{
    const u=new URL(view.href);u.searchParams.set("at",String(at));
    const segments=[];let next=null;
    for await(const e of activityFrames(u,signal)){
     if(e.has(2)){const entry=activityFields(e.get(2)),end=stamp(entry.get(1)),url=entry.has(2)?decode(activityFields(entry.get(2)).get(1)):null;
-     if(url&&end<=now+2&&end>=now-180)back={end,url};}
+     if(url&&end<=now+2&&end>=now-180){back={end,url};if(firstClosed)break;}}
     for(const field of [1,3])if(e.has(field)){
      const info=activityFields(e.get(field)),start=stamp(info.get(1)),end=stamp(info.get(2)),url=decode(info.get(3));
      if(url&&Number.isSafeInteger(start)&&Number.isSafeInteger(end)&&start<end&&end<=now&&end>=now-900){
       segments.push({start,end,url});if(field===3&&end>=now-180)previous={start,end,url};
      }
     }
+    if(firstClosed&&segments.some(x=>x.end>=now-180))break;
     if(e.has(4)){next=Number(activityFields(e.get(4)).get(1));break;}
     if(segments.length>=64)break;
    }
    return {segments,next};
   };
-  const initial=await readView("now");
-  let partial=null;
-  if(back){const result=await readHistory();if(result.active10m!=null)return result;if(result.active60s!=null)partial=result;}
+  const initial=await readView("now",true);
+  // Original Sites behavior: immediately read one recently completed
+  // segment instead of waiting for the full ten-minute view chain.
+  const recent=initial.segments.filter(x=>x.end>=now-180).sort((a,b)=>b.end-a.end)[0];
+  if(recent&&!back){
+   historyStage="直近コメント区間";
+   for await(const chunk of activityFrames(recent.url,signal))record(chunk);
+   if(!unknownTime){
+    const start=Math.max(recent.start,recent.end-600);
+    const measured=recentActivityCount(events,start,recent.end);
+    const exact=activityAggregate(events,recent.end,start);
+    if(measured.activeRecent!=null){
+     partial={...exact,...measured,activitySampleEnd:recent.end,activityStage:exact.active10m!=null?"10分履歴取得済み":"直近完了区間の実測取得済み"};
+     if(exact.active10m!=null)return partial;
+    }
+   }
+  }
+  if(back){
+   const result=await readHistory();
+   if(result.active10m!=null)return result;
+   if(result.active60s!=null)partial={...result,activeRecent:result.active60s,activityRecentSeconds:60,activityRecentEnd:result.activitySampleEnd};
+  }
   // Discard partial backward samples before trying the ordinary segment route.
   events=[];unknownTime=false;
   historyStage="時刻指定履歴";
@@ -752,10 +782,10 @@ async function sampleNicoActivity(raw,startedAt){
    }));
   }
   if(unknownTime||!activityIntervalsCover(completed,from,end))return partial||{activityStage:"履歴時刻または範囲不足"};
-  const result=activityAggregate(events,end,from);
+  const result=activityAggregate(events,end,from),measured=recentActivityCount(events,from,end);
   if(result.active10m==null&&result.active60s==null&&partial)return partial;
-  return {...result,activitySampleEnd:end,activityStage:result.active10m!=null?"10分履歴取得済み":result.active60s!=null?"10分履歴不足・1分実測取得済み":"投稿者ID欠落"};
- }catch(e){return {activityStage:historyStage+"："+diagnostic(e)};}
+  return {...result,...measured,activitySampleEnd:end,activityStage:result.active10m!=null?"10分履歴取得済み":result.active60s!=null?"10分履歴不足・1分実測取得済み":"投稿者ID欠落"};
+ }catch(e){return partial||{activityStage:historyStage+"："+diagnostic(e)};}
 }
 function watchStartRequest(){return {type:"startWatching",data:{stream:{quality:"abr",protocol:"hls",latency:"low",chasePlay:false},room:{protocol:"webSocket",commentable:false},reconnect:false}};}
 function watchErrorLabel(message){
@@ -768,7 +798,7 @@ async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt=""){
  try{
   // A single deadline covers the handshake and short read. Do not abort
   // a successful upgraded connection at the old four-second deadline.
-  const signal=AbortSignal.timeout(28000);
+  const signal=AbortSignal.timeout(34000);
   const response=await nicoFetchNoRedirect(endpoint,{headers:{Upgrade:"websocket",Origin:"https://live.nicovideo.jp"},signal});
   ws=response.webSocket;
   if(!ws){const status=response.status;try{await response.body?.cancel();}catch{}return {watchStage:"視聴接続 HTTP "+status};}
@@ -778,10 +808,10 @@ async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt=""){
    function onAbort(){finish("視聴通信タイムアウト");}
    function maybeFinish(){if(latest?.advertising!=null&&latest?.gift!=null&&(!wantActivity||(viewReceived&&!activityRunning)))finish();}
    function send(value){if(done)return;try{ws.send(JSON.stringify(value));}catch{finish("視聴メッセージ送信失敗");}}
-   timer=setTimeout(()=>finish(),wantActivity?22000:12000);
+   timer=setTimeout(()=>finish(),wantActivity?29000:12000);
    signal.addEventListener("abort",onAbort,{once:true});
-   ws.addEventListener("close",event=>finish("視聴接続切断 "+(Number.isInteger(event.code)?event.code:"詳細なし")));
-   ws.addEventListener("error",()=>finish("視聴接続エラー"));
+   ws.addEventListener("close",event=>{if(activityRunning){watchStage="視聴接続終了・履歴取得中";return;}finish("視聴接続切断 "+(Number.isInteger(event.code)?event.code:"詳細なし"));});
+   ws.addEventListener("error",()=>{if(activityRunning){watchStage="視聴接続エラー・履歴取得中";return;}finish("視聴接続エラー");});
    ws.addEventListener("message",event=>{
     if(done)return;
     let raw=event.data;
@@ -798,7 +828,7 @@ async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt=""){
       if(view){viewReceived=true;activityRunning=true;activityStage="コメント履歴取得中";
        sampleNicoActivity(view.href,startedAt).then(result=>{if(done)return;activity=result;activityRunning=false;activityStage=result?.activityStage||"コメント履歴取得失敗";maybeFinish();}).catch(()=>{if(done)return;activityRunning=false;activityStage="コメント履歴取得失敗";maybeFinish();});
       }else activityStage="コメント履歴URL形式未対応";
-     }else if(message.type==="disconnect"||message.type==="error")finish("視聴サーバー "+watchErrorLabel(message));
+     }else if(message.type==="disconnect"||message.type==="error"){if(activityRunning)watchStage="視聴サーバー "+watchErrorLabel(message);else finish("視聴サーバー "+watchErrorLabel(message));}
     }catch{}
    });
    try{ws.accept();send(watchStartRequest());}catch{finish("視聴接続初期化失敗");}
@@ -1324,7 +1354,7 @@ async function liveThumbnail(request){
 
 function statisticsFields(result){
  const out={};
- for(const k of ["advertising","gift","active10m","active60s","activitySampleEnd"])if(Number.isSafeInteger(result?.[k])&&result[k]>=0)out[k]=result[k];
+ for(const k of ["advertising","gift","active10m","active60s","activitySampleEnd","activeRecent","activityRecentSeconds","activityRecentEnd"])if(Number.isSafeInteger(result?.[k])&&result[k]>=0)out[k]=result[k];
  return out;
 }
 async function nicoSupplementalStatistics(request){
@@ -1335,7 +1365,7 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r58/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r60/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
   const fields=statisticsFields(row);
@@ -1376,7 +1406,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r59",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r60",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
