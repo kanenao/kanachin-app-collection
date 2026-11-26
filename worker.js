@@ -1203,22 +1203,65 @@ async function kickEndpointImages(id,known,suffix){
   return kickFrameCandidates(live).map(v=>kickProxyImage(v)||validatedThumb(v,"kick")).filter(Boolean);
  }catch{return [];}
 }
+function oldNicoPageImages(html,id){
+ const tag=String(html||"").match(/<script\b[^>]*\bid=["']embedded-data["'][^>]*>/i)?.[0];
+ const raw=tag?.match(/\bdata-props\s*=\s*(["'])([\s\S]*?)\1/i)?.[2];
+ let p=null;
+ if(raw){try{p=JSON.parse(raw.replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&")).program;}catch{}}
+ const meta=(name)=>{
+  for(const [t] of String(html||"").matchAll(/<meta\b[^>]*>/gi)){
+   if(t.match(/\s(?:property|name)\s*=\s*(["'])(.*?)\1/i)?.[2]?.toLowerCase()===name)return t.match(/\scontent\s*=\s*(["'])(.*?)\1/i)?.[2]?.replaceAll("&amp;","&")||"";
+  }return "";
+ };
+ const declared=p?.nicoliveProgramId??p?.programId??p?.liveId??p?.id?.value??p?.id;
+ const page=meta("og:url");
+ const pageId=/^https:\/\/live\.nicovideo\.jp\/watch\/(lv\d{5,15})\/?(?:[?#].*)?$/i.exec(page)?.[1]?.toLowerCase();
+ if(declared!=null&&String(declared)!==id&&"lv"+String(declared)!==id)return [];
+ if(page&&pageId!==id)return [];
+ // The caller uses a fixed watch URL, and refuses all redirects.
+ const shot=p?.thumbnail?.screenshot;
+ const values=typeof shot==="string"?[shot]:[shot?.large,shot?.middle,shot?.small,shot?.url];
+ const poster=meta("og:image");
+ const screen=p?.screenshot?.urlSet;
+ return [...new Set([...values,screen?.large,screen?.middle,screen?.small,poster,meta("og:image:secure_url"),meta("twitter:image")].filter(v=>typeof v==="string"&&v))].slice(0,8);
+}
+function oldNicoImageUrl(raw){
+ if(typeof raw!=="string"||raw.length>2048||nicoBrandImage(raw))return "";
+ try{
+  const u=new URL(raw.replaceAll("&amp;","&"),"https://live.nicovideo.jp");
+  const host=u.hostname.toLowerCase();
+  if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||!(host==="nimg.jp"||host.endsWith(".nimg.jp")||host==="simg.jp"||host.endsWith(".simg.jp")||host==="nicovideo.jp"||host.endsWith(".nicovideo.jp")))return "";
+  return u.href;
+ }catch{return "";}
+}
+async function oldNicoWatchImages(id){
+ try{
+  // Source implementation from live-ranking-source.zip: direct watch page,
+  // thumbnail.screenshot then program poster. No speculative channel API.
+  const res=await nicoFetchNoRedirect("https://live.nicovideo.jp/watch/"+id,{signal:AbortSignal.timeout(7000),headers:{accept:"text/html"},cf:{cacheEverything:true,cacheTtl:2}});
+  if(!res.ok||!res.body||Number(res.headers.get("content-length")||0)>6291456){try{await res.body?.cancel();}catch{}return [];}
+  const reader=res.body.getReader(),decoder=new TextDecoder();let size=0,html="";
+  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>6291456){await reader.cancel();return [];}html+=decoder.decode(value,{stream:true});}html+=decoder.decode();}finally{reader.releaseLock();}
+  return oldNicoPageImages(html,id).map(oldNicoImageUrl).filter(Boolean);
+ }catch{return [];}
+}
 async function thumbnailResponse(raw,type,preview=false,verified=false){
- const validate=value=>validatedThumb(value,type)||(type==="kick"&&verified?kickProxyImage(value):"");
+ const validate=value=>validatedThumb(value,type)||(type==="nico"&&verified?oldNicoImageUrl(value):type==="kick"&&verified?kickProxyImage(value):"");
  let url=validate(raw);if(!url)return null;
- const signal=AbortSignal.timeout(6000);
+ const signal=AbortSignal.timeout(type==="nico"?7000:6000);
+ const maxBytes=type==="nico"?4194304:2097152;
  try{
   let response;
   for(let i=0;i<3;i++){
-   response=await fetch(url,{signal,redirect:"manual",...(preview?{cache:"no-store"}:{}),headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?(new URL(url).hostname==="www.chikuwachan.com"?"https://www.chikuwachan.com/live/":"https://live.nicovideo.jp/"):"https://kick.com/"}});
+   response=await fetch(url,{signal,redirect:"manual",...(type==="nico"?{cf:{cacheEverything:true,cacheTtl:2}}:preview?{cache:"no-store"}:{}),headers:{Accept:"image/avif,image/webp,image/png,image/jpeg,image/gif",Referer:type==="nico"?(new URL(url).hostname==="www.chikuwachan.com"?"https://www.chikuwachan.com/live/":"https://live.nicovideo.jp/"):"https://kick.com/"}});
    if(![301,302,303,307,308].includes(response.status))break;
    const location=response.headers.get("location");if(response.body)await response.body.cancel();if(!location)return null;
    url=validate(new URL(location,url).href);if(!url)return null;
   }
   const contentType=(response.headers.get("content-type")||"").split(";")[0].toLowerCase();
-  if(!response.ok||!/^image\/(jpeg|png|webp|gif|avif)$/.test(contentType)||Number(response.headers.get("content-length")||0)>2097152||!response.body){if(response.body)await response.body.cancel();return null;}
+  if(!response.ok||!/^image\/(jpeg|png|webp|gif|avif)$/.test(contentType)||Number(response.headers.get("content-length")||0)>maxBytes||!response.body){if(response.body)await response.body.cancel();return null;}
   const reader=response.body.getReader(),chunks=[];let total=0;
-  try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>2097152){await reader.cancel();return null;}chunks.push(value);}}finally{reader.releaseLock();}
+  try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>maxBytes){await reader.cancel();return null;}chunks.push(value);}}finally{reader.releaseLock();}
   if(!total)return null;
   const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
   return new Response(bytes,{headers:{"content-type":contentType,"cache-control":preview?"public, max-age=3":type==="kick"?"public, max-age=60":"public, max-age=30","x-content-type-options":"nosniff"}});
@@ -1229,21 +1272,23 @@ async function liveThumbnail(request){
  if(request.method!=="GET")return new Response(null,{status:405});
  if(!(type==="nico"?/^lv\d{5,15}$/.test(id):type==="kick"&&/^[a-z0-9_-]{1,40}$/.test(id)))return new Response(null,{status:400});
  const preview=type==="nico"&&url.searchParams.get("preview")==="1";
- const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r58":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
- const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r58/"+id);
+ const key=new Request(url.origin+"/__cache/live-thumbnail-"+(type==="nico"?"r59":"r51")+"/"+type+"/"+id+(preview?"/preview":""));
+ const sourceKey=new Request(url.origin+"/__cache/nico-preview-source-r59/"+id);
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  let rows=[];
  // Restrict public requests to programs currently present in a cached ranking.
  for(const cacheKey of rankingCacheKeys(url.origin,type)){
   try{const response=await caches.default.match(cacheKey);const data=response&&await response.json();if(Array.isArray(data?.entries)&&data.entries.some(x=>x.id===id)){rows=data.entries;break;}}catch{}
  }
- if(!rows.length)return new Response(null,{status:404,headers:{"cache-control":"no-store"}});
- const known=rows.find(x=>x.id===id),rankImages=imageCandidates(known.thumbnail,...(known.thumbnailCandidates||[]));
+ if(!rows.length&&type!=="nico")return new Response(null,{status:404,headers:{"cache-control":"no-store"}});
+ // Cache API is local to an edge location. A valid public Nico watch ID may
+ // use the bounded legacy source even if this edge has no ranking cache.
+ const known=rows.find(x=>x.id===id)||{id},rankImages=imageCandidates(known.thumbnail,...(known.thumbnailCandidates||[]));
  if(preview){
   // Only use a previously successful public image URL; never repeat expensive program detail lookups.
   let source="";
-  try{const saved=await caches.default.match(sourceKey);if(saved)source=validatedThumb((await saved.json())?.url,"nico");}catch{}
-  const response=source?await thumbnailResponse(source,"nico",true):null;
+  try{const saved=await caches.default.match(sourceKey);if(saved){const value=(await saved.json())?.url;source=oldNicoImageUrl(value)||validatedThumb(value,"nico");}}catch{}
+  const response=source?await thumbnailResponse(source,"nico",true,true):null;
   const result=response||new Response(null,{status:404,headers:{"cache-control":"public, max-age=3"}});
   try{await caches.default.put(key,result.clone());}catch{}
   return result;
@@ -1251,14 +1296,17 @@ async function liveThumbnail(request){
  // Prefer already observed program images; resolve from fixed public endpoints if unavailable.
  let attempted=new Set(),workingSource="";
  async function tryImages(images,verified=false){
-  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||(type==="nico"&&nicoBrandImage(candidate))||attempted.has(candidate)||attempted.size>=(type==="nico"?6:9))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
+  for(const raw of images){const candidate=validatedThumb(raw,type)||(type==="nico"&&verified?oldNicoImageUrl(raw):type==="kick"&&verified?kickProxyImage(raw):"");if(!candidate||(type==="nico"&&nicoBrandImage(candidate))||attempted.has(candidate)||attempted.size>=(type==="nico"?6:9))continue;attempted.add(candidate);const response=await thumbnailResponse(candidate,type,false,verified);if(response){workingSource=candidate;return response;}}return null;
  }
  const isNicoUser=type==="nico"&&(known.providerKind==="user"||(!known.providerKind&&!known.channelOwner&&!!known.profileUrl));
  const initial=type==="nico"&&!isNicoUser?(known.programThumbnails||[]).filter(v=>!nicoBrandImage(v)):rankImages;
- const channelCandidates=type==="nico"&&!isNicoUser&&!initial.length?resolveThumbnailCandidates(type,id,rows):null;
  let result=null;
- if(type==="nico"){try{const saved=await caches.default.match(sourceKey);if(saved)result=await tryImages([(await saved.json())?.url]);}catch{}}
- if(!result)result=await tryImages(initial.slice(0,2),type==="kick"&&known.thumbnailVerified===true);
+ if(type==="nico"){
+  const direct=await oldNicoWatchImages(id);
+  result=await tryImages(direct.slice(0,3),true);
+  if(!result&&rows.length){try{const saved=await caches.default.match(sourceKey);if(saved)result=await tryImages([(await saved.json())?.url],true);}catch{}}
+ }else result=await tryImages(initial.slice(0,2),known.thumbnailVerified===true);
+ if(!result&&type==="nico"&&rows.length)result=await tryImages(initial.slice(0,2));
  if(!result&&type==="kick")result=await tryImages((await kickChikuwaImages(url.origin,id)).slice(0,2),true);
  if(!result&&type==="kick")result=await tryImages((await kickReferenceImages(url.origin,id)).slice(0,1),true);
  if(!result&&type==="kick"){
@@ -1267,8 +1315,7 @@ async function liveThumbnail(request){
    if(result)break;
   }
   if(!result)result=await tryImages(rankImages,type==="kick"&&known.thumbnailVerified===true);
- }else if(!result)result=await tryImages(await (channelCandidates||resolveThumbnailCandidates(type,id,rows)),false);
- else if(channelCandidates)await channelCandidates;
+ }else if(!result&&rows.length)result=await tryImages(await resolveThumbnailCandidates(type,id,rows),false);
  if(!result)result=new Response(null,{status:404,headers:{"cache-control":"public, max-age=25"}});
  if(type==="nico"&&workingSource){try{await caches.default.put(sourceKey,json({url:workingSource},200,"public, max-age=120"));}catch{}}
  try{await caches.default.put(key,result.clone());}catch{}
@@ -1329,7 +1376,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r58",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.26-r59",kickConfigured:!!(env.KICK_CLIENT_ID&&env.KICK_CLIENT_SECRET)});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
