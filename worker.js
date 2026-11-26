@@ -619,6 +619,7 @@ function activityIntervalsCover(intervals,from,to){
  }
  return covered>=to;
 }
+function validActivityCursor(value,now){return Number.isSafeInteger(value)&&value>=now-900&&value<=now+60;}
 function historyReady(hasBackward,hasPrevious,hasNext,ended){return !!(hasBackward&&(hasPrevious||hasNext||ended)||hasPrevious&&(hasNext||ended));}
 function activityAggregate(events,end,coveredSince,startedAt=null,exhausted=false){
  if(!Number.isSafeInteger(end)||!Number.isSafeInteger(coveredSince)||coveredSince>end)return {active10m:null,active60s:null};
@@ -669,11 +670,14 @@ function recentActivityCount(events,start,end){
 }
 async function sampleNicoActivity(raw,startedAt){
  const view=activityFeedUrl(raw);if(!view)return {activityStage:"履歴URL未対応"};
- const signal=AbortSignal.timeout(19000),now=Math.floor(Date.now()/1000);
+ const signal=AbortSignal.timeout(22000),now=Math.floor(Date.now()/1000);
  const decode=b=>b instanceof Uint8Array?activityFeedUrl(new TextDecoder().decode(b)):null;
  const stamp=b=>b instanceof Uint8Array?Number(activityFields(b).get(1)):NaN;
  view.searchParams.set("at","now");
- let back=null,previous=null,events=[],unknownTime=false,historyStage="履歴接続中",exhausted=false,partial=null;
+ let back=null,previous=null,events=[],unknownTime=false,historyStage="履歴接続中",exhausted=false,partial=null,requests=0;
+ const budget=()=>{if(++requests>22)throw Error("履歴取得上限");};
+ const frames=(url,abort=signal)=>{budget();return activityFrames(url,abort);};
+ const bytes=url=>{budget();return activityBytes(url,signal);};
  function record(chunk){
   if(!chunk.has(2))return;
   const message=activityFields(chunk.get(2)),raw=message.get(1)||message.get(20);if(!raw)return;
@@ -689,15 +693,15 @@ async function sampleNicoActivity(raw,startedAt){
    const joined=back&&previous&&previous.start<=back.end&&previous.end>=back.end;
    const sampleEnd=joined?previous.end:back?back.end:previous.end;
    let covered=sampleEnd;
-   if(joined||!back){historyStage="直前セグメント";for await(const chunk of activityFrames(previous.url,signal))record(chunk);covered=previous.start;}
+   if(joined||!back){historyStage="直前セグメント";for await(const chunk of frames(previous.url))record(chunk);covered=previous.start;}
    if(back){
     historyStage="過去セグメント";
     let url=back.url,oldest=back.end;const seen=new Set();
     for(let i=0;url&&i<16;i++){
      if(seen.has(url.href))throw Error("repeated history");seen.add(url.href);
-     const packet=activityFields(await activityBytes(url,signal),1,b=>{
+     const packet=activityFields(await bytes(url),1,b=>{
       const chunk=activityFields(b);if(!chunk.has(1))return;
-      const at=stamp(activityFields(chunk.get(1)).get(2));if(!Number.isSafeInteger(at)){if(chunk.has(2))unknownTime=true;return;}
+      const at=stamp(activityFields(chunk.get(1)).get(2));if(!Number.isSafeInteger(at)){record(chunk);return;}
       oldest=Math.min(oldest,at);record(chunk);
      });
      covered=Math.min(covered,oldest);
@@ -708,7 +712,8 @@ async function sampleNicoActivity(raw,startedAt){
    }
    if(unknownTime)return {activityStage:"履歴時刻未取得"};
    const start=Math.floor(Date.parse(startedAt)/1000),result=activityAggregate(events,sampleEnd,covered,Number.isSafeInteger(start)?start:null,exhausted);
-   return {...result,activitySampleEnd:sampleEnd,activityStage:result.active10m!=null?"10分履歴取得済み":events.some(e=>e.at>sampleEnd-600&&e.at<=sampleEnd&&!e.sender)?"投稿者ID欠落":"10分履歴不足"};
+   const measured=recentActivityCount(events,Math.max(covered,sampleEnd-600),sampleEnd);
+   return {...result,...measured,activitySampleEnd:sampleEnd,activityStage:result.active10m!=null?"10分履歴取得済み":events.some(e=>e.at>sampleEnd-600&&e.at<=sampleEnd&&!e.sender)?"投稿者ID欠落":measured.activeRecent!=null?"過去履歴の実測取得済み":"10分履歴不足"};
   };
   // MessageStream supports both segment (field 1) and previous (field 3).
   // When now supplies only a cursor/forward entries, request a bounded
@@ -716,28 +721,33 @@ async function sampleNicoActivity(raw,startedAt){
   const readView=async(at,firstClosed=false)=>{
    const u=new URL(view.href);u.searchParams.set("at",String(at));
    const segments=[];let next=null;
-   for await(const e of activityFrames(u,signal)){
+   try{for await(const e of frames(u,AbortSignal.any([signal,AbortSignal.timeout(4500)]))){
     if(e.has(2)){const entry=activityFields(e.get(2)),end=stamp(entry.get(1)),url=entry.has(2)?decode(activityFields(entry.get(2)).get(1)):null;
-     if(url&&end<=now+2&&end>=now-180){back={end,url};if(firstClosed)break;}}
+     if(url&&end<=now+2&&end>=now-180&&(!back||end>=back.end)){back={end,url};}}
     for(const field of [1,3])if(e.has(field)){
      const info=activityFields(e.get(field)),start=stamp(info.get(1)),end=stamp(info.get(2)),url=decode(info.get(3));
      if(url&&Number.isSafeInteger(start)&&Number.isSafeInteger(end)&&start<end&&end<=now&&end>=now-900){
       segments.push({start,end,url});if(field===3&&end>=now-180)previous={start,end,url};
      }
     }
-    if(firstClosed&&segments.some(x=>x.end>=now-180))break;
+    if(firstClosed&&back&&previous)break;
     if(e.has(4)){next=Number(activityFields(e.get(4)).get(1));break;}
     if(segments.length>=64)break;
-   }
+   }}catch(e){if(!segments.length&&!back&&!next)throw e;}
    return {segments,next};
   };
   const initial=await readView("now",true);
+  if(!back&&!initial.segments.length&&validActivityCursor(initial.next,now)){
+   historyStage="公式履歴カーソル接続";
+   const follow=await readView(initial.next,true);
+   initial.segments.push(...follow.segments);initial.next=follow.next;
+  }
   // Original Sites behavior: immediately read one recently completed
   // segment instead of waiting for the full ten-minute view chain.
   const recent=initial.segments.filter(x=>x.end>=now-180).sort((a,b)=>b.end-a.end)[0];
   if(recent&&!back){
    historyStage="直近コメント区間";
-   for await(const chunk of activityFrames(recent.url,signal))record(chunk);
+   for await(const chunk of frames(recent.url))record(chunk);
    if(!unknownTime){
     const start=Math.max(recent.start,recent.end-600);
     const measured=recentActivityCount(events,start,recent.end);
@@ -749,9 +759,11 @@ async function sampleNicoActivity(raw,startedAt){
    }
   }
   if(back){
-   const result=await readHistory();
+   try{const result=await readHistory();
    if(result.active10m!=null)return result;
-   if(result.active60s!=null)partial={...result,activeRecent:result.active60s,activityRecentSeconds:60,activityRecentEnd:result.activitySampleEnd};
+   if(result.activeRecent!=null)partial=result;
+   else if(result.active60s!=null)partial={...result,activeRecent:result.active60s,activityRecentSeconds:60,activityRecentEnd:result.activitySampleEnd};
+   }catch(e){historyStage="過去履歴："+diagnostic(e);}
   }
   // Discard partial backward samples before trying the ordinary segment route.
   events=[];unknownTime=false;
@@ -759,7 +771,7 @@ async function sampleNicoActivity(raw,startedAt){
   const targetEnd=now-10,targetStart=targetEnd-600,all=new Map(),cursors=new Set();
   for(const seg of initial.segments)if(seg.end>now-900&&seg.end<=now)all.set(seg.url.href,seg);
   let cursor=targetStart;
-  for(let page=0;page<8;page++){
+  for(let page=0;page<6&&requests<16;page++){
    if(cursors.has(cursor))break;cursors.add(cursor);
    const response=await readView(cursor);
    for(const seg of response.segments)if(seg.end>targetStart&&seg.start<targetEnd)all.set(seg.url.href,seg);
@@ -772,12 +784,12 @@ async function sampleNicoActivity(raw,startedAt){
   if(!window)return partial||{activityStage:all.size?"時刻指定履歴不足（連続1分未満）":"過去履歴接続先未受信"};
   const end=window.end,from=Math.max(window.start,end-600);
   const intervals=[...all.values()].filter(x=>x.end>from&&x.start<end).sort((a,b)=>a.start-b.start);
-  if(intervals.length>32)return partial||{activityStage:"履歴セグメント上限"};
+  if(intervals.length>22-requests)return partial||{activityStage:"履歴取得上限"};
   // Only count completed segments, never claim continuous coverage of missing intervals.
   const completed=[];
   for(let i=0;i<intervals.length;i+=3){
    await Promise.all(intervals.slice(i,i+3).map(async seg=>{
-    for await(const chunk of activityFrames(seg.url,signal))record(chunk);
+    for await(const chunk of frames(seg.url))record(chunk);
     completed.push(seg);
    }));
   }
@@ -808,7 +820,7 @@ async function fetchNicoStatistics(endpoint,wantActivity=false,startedAt=""){
    function onAbort(){finish("視聴通信タイムアウト");}
    function maybeFinish(){if(latest?.advertising!=null&&latest?.gift!=null&&(!wantActivity||(viewReceived&&!activityRunning)))finish();}
    function send(value){if(done)return;try{ws.send(JSON.stringify(value));}catch{finish("視聴メッセージ送信失敗");}}
-   timer=setTimeout(()=>finish(),wantActivity?29000:12000);
+   timer=setTimeout(()=>finish(),wantActivity?32000:12000);
    signal.addEventListener("abort",onAbort,{once:true});
    ws.addEventListener("close",event=>{if(activityRunning){watchStage="視聴接続終了・履歴取得中";return;}finish("視聴接続切断 "+(Number.isInteger(event.code)?event.code:"詳細なし"));});
    ws.addEventListener("error",()=>{if(activityRunning){watchStage="視聴接続エラー・履歴取得中";return;}finish("視聴接続エラー");});
@@ -1492,7 +1504,7 @@ async function nicoSupplementalStatistics(request){
  if(!Array.isArray(rank?.entries)||!rank.entries.length)return json({status:"pending",message:"ランキングキャッシュ待ち",entries:[]},200,"no-store");
  const rows=rank.entries.slice(0,10).filter(row=>/^lv\d{5,15}$/.test(row.id)),results=[],pending=[];
  for(const row of rows){
-  const key=new Request(origin+"/__cache/nico-stats-r60/"+row.id);
+  const key=new Request(origin+"/__cache/nico-stats-r72/"+row.id);
   let saved;try{const hit=await caches.default.match(key);if(hit)saved=await hit.json();}catch{}
   if(saved){results.push({...saved,...statisticsFields(row),...statisticsFields(saved)});continue;}
   const fields=statisticsFields(row);
@@ -1501,7 +1513,7 @@ async function nicoSupplementalStatistics(request){
  }
  const rotation=Math.floor(Date.now()/10000)%10;
  pending.sort((a,b)=>((rows.indexOf(a.row)-rotation+10)%10)-((rows.indexOf(b.row)-rotation+10)%10));
- await Promise.all(pending.slice(0,2).map(async({row,key})=>{
+ await Promise.all(pending.slice(0,1).map(async({row,key})=>{
   const result={id:row.id,...statisticsFields(row),stage:"番組情報取得失敗",checkedAt:Date.now()};
   try{
    const page=await fetchBounded("https://live.nicovideo.jp/watch/"+row.id,{headers:{accept:"text/html"}},6*1024*1024);
@@ -1525,7 +1537,7 @@ async function nicoSupplementalStatistics(request){
   result.checkedAt=Date.now();results.push(result);
   try{await caches.default.put(key,json(result,200,"public, max-age="+(result.advertising!=null&&result.gift!=null?60:30)));}catch{}
  }));
- return json({status:"ok",entries:results,pending:Math.max(0,pending.length-2)},200,"no-store");
+ return json({status:"ok",entries:results,pending:Math.max(0,pending.length-1)},200,"no-store");
 }
 
 function connectionError(e){const message=String(e?.message||"");return /^HTTP \d{3}$/.test(message)?message:e?.name==="TimeoutError"||e?.name==="AbortError"?"タイムアウト":"接続失敗・応答確認";}
@@ -1603,7 +1615,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r71</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r72</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1660,7 +1672,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r71"});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r72"});
  if(url.pathname==="/embed/rankings"||url.pathname==="/embed/rankings/"){const assetUrl=new URL("/",url);return env.ASSETS.fetch(new Request(assetUrl,request));}
  if(!match)return url.pathname.startsWith("/api/")?json({status:"error",message:"APIが見つかりません"},404):env.ASSETS.fetch(request);
  if(request.method!=="GET")return json({status:"error",message:"GETのみ対応"},405);
