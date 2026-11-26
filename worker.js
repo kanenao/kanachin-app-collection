@@ -1028,7 +1028,7 @@ function kickHistoryError(e){
  if(e?.name==="TimeoutError"||e?.name==="AbortError")return "タイムアウト";
  if(e instanceof SyntaxError)return "JSON応答形式不正";
  const labels={"channel not verified live":"配信者情報・ライブ状態不一致","stream identity mismatch":"放送開始時刻不一致","公開チャット履歴なし":"有効な履歴なし","chat history format":"履歴応答形式不正","chat history timestamp":"履歴の時刻形式不正"};
- return labels[msg]||diagnostic(e);
+ return labels[msg]||(/redirect/i.test(msg)?"リダイレクト拒否":e instanceof TypeError?"ネットワーク接続失敗":diagnostic(e));
 }
 function kickVerifiedIdentity(channel,row){
  const c=channel?.data&&typeof channel.data==="object"&&!Array.isArray(channel.data)?channel.data:channel;
@@ -1112,7 +1112,76 @@ async function kickGiftKey(){
  return crypto.subtle.importKey("spki",der,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]);
 }
 function giftAllowedIds(env){return String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").split(/[,\s]+/).map(x=>x.trim().toUpperCase()).filter(x=>/^[0-9A-HJKMNP-TV-Z]{26}$/.test(x));}
-function giftSubscriptionRows(payload){if(!Array.isArray(payload?.data))throw Error("invalid subscriptions");return payload.data.filter(x=>x?.method==="webhook"&&Number(x.version)===1&&["kicks.gifted","channel.subscription.gifts"].includes(x.event)&&/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(x.id||"")&&officialGiftCount(x.broadcaster_user_id)>0);}
+const CHAT_SCHEMA="CREATE TABLE IF NOT EXISTS kick_chat_receipts (event_id TEXT PRIMARY KEY, broadcaster_id INTEGER NOT NULL, occurred_at INTEGER NOT NULL, sender_hash TEXT NOT NULL)",CHAT_INDEX="CREATE INDEX IF NOT EXISTS kick_chat_receipts_channel_time ON kick_chat_receipts(broadcaster_id, occurred_at)",CHAT_TIME_INDEX="CREATE INDEX IF NOT EXISTS kick_chat_receipts_time ON kick_chat_receipts(occurred_at)";
+const KICK_EVENTS=["chat.message.sent","kicks.gifted","channel.subscription.gifts"];
+function kickChatEvent(payload,now){
+ const broadcaster=officialGiftCount(payload?.broadcaster?.user_id),sender=officialGiftCount(payload?.sender?.user_id),at=Date.parse(payload?.created_at);
+ if(!broadcaster||!Number.isFinite(at)||at>now+60000||at<now-600000)return null;
+ return {broadcaster,sender:sender||null,at,type:"chat.message.sent"};
+}
+async function verifyChatSubscription(env,origin,id,event){
+ if(!env.KICK_CLIENT_ID||!env.KICK_CLIENT_SECRET)throw Error("missing API credentials");
+ const key=new Request(origin+"/__cache/kick-chat-sub-r97/"+event.broadcaster+"/"+id);
+ try{const hit=await caches.default.match(key);if(hit)return (await hit.json()).ok===true;}catch{}
+ const token=await kickToken(env),url="https://api.kick.com/public/v1/events/subscriptions?broadcaster_user_id="+event.broadcaster;
+ const rows=giftSubscriptionRows(JSON.parse(await fetchBounded(url,{headers:{authorization:"Bearer "+token,accept:"application/json"}},1024*1024)));
+ const ok=giftSubscriptionMatch(rows,id,event);
+ if(ok)try{await caches.default.put(key,json({ok:true},200,"public, max-age=120"));}catch{}
+ return ok;
+}
+async function recordKickChat(env,origin,id,event){
+ if(!await verifyChatSubscription(env,origin,id,event))return giftWebhookResult(403,"chat_subscription_not_matched");
+ if(!adminSecretReady(env.KICK_ADMIN_PASSWORD))return giftWebhookResult(503,"chat_hash_secret_missing");
+ const hash=event.sender?await adminSign("kick-chat:"+event.broadcaster+":"+event.sender,env.KICK_ADMIN_PASSWORD):"";
+ // Store a short-lived pseudonymous key only. Never store message text or usernames.
+ await env.KICK_GIFT_DB.prepare("INSERT OR IGNORE INTO kick_chat_receipts(event_id,broadcaster_id,occurred_at,sender_hash) VALUES(?,?,?,?)").bind(id,event.broadcaster,event.at,hash).run();
+ return giftWebhookResult(204,"chat_stored_or_duplicate");
+}
+async function enrichKickChatReceipts(rows,env,origin){
+ if(!env.KICK_GIFT_DB)return;
+ const ids=[...new Set(rows.map(r=>r.kickOfficialId).filter(v=>Number.isSafeInteger(v)&&v>0))];
+ if(!ids.length)return;
+ const now=Date.now();
+ try{
+  const key=new Request(origin+"/__cache/kick-chat-cleanup-r97");
+  if(!await caches.default.match(key)){await env.KICK_GIFT_DB.prepare("DELETE FROM kick_chat_receipts WHERE occurred_at < ?").bind(now-600000).run();await caches.default.put(key,json({},200,"public, max-age=60"));}
+  const query="SELECT broadcaster_id, COUNT(CASE WHEN occurred_at > ? THEN 1 END) AS recent, COUNT(DISTINCT CASE WHEN sender_hash <> '' THEN sender_hash END) AS active, COUNT(*) AS total FROM kick_chat_receipts WHERE occurred_at > ? AND occurred_at <= ? AND broadcaster_id IN ("+ids.map(()=>"?").join(",")+") GROUP BY broadcaster_id";
+  const result=await env.KICK_GIFT_DB.prepare(query).bind(now-30000,now-600000,now,...ids).all();
+  for(const x of result.results||[]){
+   const row=rows.find(r=>r.kickOfficialId===Number(x.broadcaster_id));
+   if(!row||!Number.isFinite(Date.parse(row.startedAt))||Date.parse(row.startedAt)>now-600000)continue;
+   row.webhookChatReceived=officialGiftCount(x.recent);row.webhookActiveReceived=officialGiftCount(x.active);row.webhookChatSampledAt=new Date(now).toISOString();
+  }
+ }catch{}
+}
+async function registerKickRankingEvents(request,env,origin){
+ if(!env.KICK_GIFT_DB||!env.KICK_CLIENT_ID||!env.KICK_CLIENT_SECRET)return {message:"公式API認証とD1を設定してください。"};
+ if(!/^application\/x-www-form-urlencoded(?:;|$)/i.test(request.headers.get("content-type")||"")||Number(request.headers.get("content-length")||0)>1024)return {message:"入力形式不正"};
+ const raw=await request.text();if(raw.length>1024)return {message:"入力上限"};
+ const form=new URLSearchParams(raw),slug=(form.get("slug")||"").trim().toLowerCase(),chat=form.get("chat")==="yes";
+ if(!/^[a-z0-9_-]{1,40}$/.test(slug))return {message:"Kickのユーザー名を入力してください。"};
+ const key=new Request(origin+"/__cache/kick-subscribe-attempt-r97/"+slug);
+ if(await caches.default.match(key))return {message:"直前に登録を試行しました。重複登録防止のため5分後に再確認してください。"};
+ await caches.default.put(key,json({},200,"public, max-age=300"));
+ const token=await kickToken(env),headers={authorization:"Bearer "+token,accept:"application/json"};
+ const read=async url=>JSON.parse(await fetchBounded(url,{headers},1024*1024));
+ const channel=(await read("https://api.kick.com/public/v1/channels?slug="+encodeURIComponent(slug))).data?.find(r=>r.slug?.toLowerCase()===slug),id=officialGiftCount(channel?.broadcaster_user_id);
+ if(!id)return {message:"公式チャンネルIDが確認できません。"};
+ const url="https://api.kick.com/public/v1/events/subscriptions",list=async()=>giftSubscriptionRows(await read(url+"?broadcaster_user_id="+id));
+ const existing=await list(),wanted=KICK_EVENTS.filter(e=>chat||e!=="chat.message.sent"),configured=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim();
+ if(chat){
+  await env.KICK_GIFT_DB.prepare(CHAT_SCHEMA).run();
+  await env.KICK_GIFT_DB.prepare(CHAT_INDEX).run();
+  await env.KICK_GIFT_DB.prepare(CHAT_TIME_INDEX).run();
+ }
+ const missing=wanted.filter(e=>!existing.some(x=>x.event===e&&Number(x.broadcaster_user_id)===id)&&(!configured||e==="chat.message.sent"));
+ let postError="";
+ if(missing.length)try{await fetchBounded(url,{method:"POST",headers:{...headers,"content-type":"application/json"},body:JSON.stringify({broadcaster_user_id:id,method:"webhook",events:missing.map(name=>({name,version:1}))})},1024*1024);}catch(e){postError=" ／ 登録応答: "+diagnostic(e);}
+ const confirmed=await list(),labels=wanted.map(e=>e+": "+(confirmed.some(x=>x.event===e&&Number(x.broadcaster_user_id)===id&&(!configured||e==="chat.message.sent"||giftAllowedIds(env).includes(x.id.toUpperCase())))?"購読確認済み":"未確認"));
+ try{await caches.default.delete(new Request(origin+"/__cache/kick-gift-subscription-status-r95"));await caches.default.delete(new Request(origin+"/__cache/kick-connection-r70"));}catch{}
+ return {message:slug+" ／ "+labels.join(" ／ ")+postError+(configured?" ／ ギフト購読IDの手動制限あり":"")+" ／ 実際の受信は別途確認してください。"};
+}
+function giftSubscriptionRows(payload){if(!Array.isArray(payload?.data))throw Error("invalid subscriptions");return payload.data.filter(x=>x?.method==="webhook"&&Number(x.version)===1&&KICK_EVENTS.includes(x.event)&&/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(x.id||"")&&officialGiftCount(x.broadcaster_user_id)>0);}
 function giftSubscriptionMatch(rows,id,event){return rows.some(x=>x.id.toUpperCase()===id.toUpperCase()&&x.event===event.type&&officialGiftCount(x.broadcaster_user_id)===event.broadcaster);}
 async function verifyGiftSubscription(env,id,event){
  const configured=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim();
@@ -1127,11 +1196,11 @@ async function kickGiftWebhook(request,env){
  if(request.method!=="POST")return new Response(null,{status:405});
  if(!env.KICK_GIFT_DB)return giftWebhookResult(503,"db_binding_missing");
  const type=request.headers.get("Kick-Event-Type"),version=request.headers.get("Kick-Event-Version");
- if(!["kicks.gifted","channel.subscription.gifts"].includes(type)||version!=="1")return new Response(null,{status:400});
+ if(!KICK_EVENTS.includes(type)||version!=="1")return new Response(null,{status:400});
  const id=request.headers.get("Kick-Event-Message-Id")||"",subscription=request.headers.get("Kick-Event-Subscription-Id")||"",stamp=request.headers.get("Kick-Event-Message-Timestamp")||"",signature=request.headers.get("Kick-Event-Signature")||"";
  const configured=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim();
  const now=Date.now(),sent=Date.parse(stamp);
- if(!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)||!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(subscription)||(configured&&!giftAllowedIds(env).includes(subscription.toUpperCase()))||!Number.isFinite(sent)||sent>now+60000||sent<now-86400000||!signature||signature.length>2048)return new Response(null,{status:403});
+ if(!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)||!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(subscription)||(type!=="chat.message.sent"&&configured&&!giftAllowedIds(env).includes(subscription.toUpperCase()))||!Number.isFinite(sent)||sent>now+60000||sent<now-86400000||!signature||signature.length>2048)return new Response(null,{status:403});
  if(!request.body||Number(request.headers.get("content-length")||0)>262144)return new Response(null,{status:413});
  let raw;try{
   const reader=request.body.getReader(),chunks=[];let size=0;
@@ -1143,8 +1212,9 @@ async function kickGiftWebhook(request,env){
   signed.set(prefix);signed.set(raw,prefix.length);
   if(!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,Uint8Array.from(atob(signature),c=>c.charCodeAt(0)),signed))return new Response(null,{status:403});
  }catch{return new Response(null,{status:503});}
- let event;try{event=officialGiftEvent(type,JSON.parse(new TextDecoder().decode(raw)),now);}catch{return new Response(null,{status:400});}
+ let event;try{const payload=JSON.parse(new TextDecoder().decode(raw));event=type==="chat.message.sent"?kickChatEvent(payload,now):officialGiftEvent(type,payload,now);}catch{return new Response(null,{status:400});}
  if(!event)return giftWebhookResult(400,"payload_invalid");
+ if(type==="chat.message.sent"){try{return await recordKickChat(env,new URL(request.url).origin,id,event);}catch{return giftWebhookResult(503,"chat_store_or_verify_failed");}}
  try{if(!await verifyGiftSubscription(env,subscription,event))return giftWebhookResult(403,"subscription_not_matched");}catch{return giftWebhookResult(503,"subscription_api_unavailable");}
  try{
   // Store only the verified event ID, public channel ID, time, and aggregate amount.
@@ -1243,6 +1313,7 @@ async function enrichKickPublicMetrics(data,origin,env,onProgress=null){
  }
  emit();
  await enrichOfficialKickGiftEvents(rows,env,origin);
+ await enrichKickChatReceipts(rows,env,origin);
  emit();
  // Keep short chat and longer activity aggregates on separate freshness clocks.
  // Public cache contains counts and stream identity only, never message bodies or sender IDs.
@@ -1661,7 +1732,7 @@ async function kickConnectionProbe(env,getToken,readApi,clock){
    const token=await getToken(env);
    if(typeof token!=="string"||!token)throw Error("認証失敗");
    out.tokenStatus="接続成功";
-   try{const subscriptions=giftSubscriptionRows(await readApi("https://api.kick.com/public/v1/events/subscriptions",token));const ids=giftAllowedIds(env),matched=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim()?subscriptions.filter(x=>ids.includes(x.id.toUpperCase())):subscriptions;out.giftSubscriptionStatus="公式API確認: KICKs "+subscriptions.filter(x=>x.event==="kicks.gifted").length+"件 / ギフトサブ "+subscriptions.filter(x=>x.event==="channel.subscription.gifts").length+"件 ／ 受信対象 "+matched.length+"件"+(String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim()?"（手動ID照合）":"（公式API自動照合）");}catch(e){out.giftSubscriptionStatus="公式購読確認失敗: "+connectionError(e);}
+   try{const subscriptions=giftSubscriptionRows(await readApi("https://api.kick.com/public/v1/events/subscriptions",token));const ids=giftAllowedIds(env),matched=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim()?subscriptions.filter(x=>ids.includes(x.id.toUpperCase())):subscriptions;out.giftSubscriptionStatus="公式API確認: KICKs "+subscriptions.filter(x=>x.event==="kicks.gifted").length+"件 / ギフトサブ "+subscriptions.filter(x=>x.event==="channel.subscription.gifts").length+"件 / チャット "+subscriptions.filter(x=>x.event==="chat.message.sent").length+"件 ／ 受信対象 "+matched.length+"件"+(String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim()?"（手動ID照合）":"（公式API自動照合）");}catch(e){out.giftSubscriptionStatus="公式購読確認失敗: "+connectionError(e);}
    try{const data=await readApi("https://api.kick.com/public/v2/livestreams?limit=1",token);if(!Array.isArray(data?.data))throw Error("応答形式不正");out.livestreamStatus="接続成功";
     const slug=data.data.find(x=>typeof x?.channel?.slug==="string"&&/^[a-z0-9_-]{1,40}$/i.test(x.channel.slug))?.channel.slug;
     if(slug){
@@ -1728,7 +1799,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r96</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r97</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1761,10 +1832,14 @@ async function kickAdminRoute(request,env,path){
   const value=message+"."+await adminSign(message,env.KICK_ADMIN_PASSWORD);
   return adminResponse(null,303,{"location":"/admin/kick-api","set-cookie":ADMIN_COOKIE+"="+value+ADMIN_COOKIE_FLAGS+"; Max-Age=3600"});
  }
+ if(path==="/admin/kick-api/subscribe"){
+  if(request.method!=="POST"||!await kickAdminAuthorized(request,env)||!adminSameOriginPost(request.headers.get("origin"),request.headers.get("sec-fetch-site"),request.headers.get("sec-fetch-mode"),request.headers.get("sec-fetch-dest"),url.origin))return adminResponse("管理者認証または安全確認に失敗",403);
+  try{const result=await registerKickRankingEvents(request,env,url.origin);return adminResponse(result.message,200,{"content-type":"text/plain; charset=utf-8"});}catch(e){return adminResponse("登録確認失敗: "+diagnostic(e),502,{"content-type":"text/plain; charset=utf-8"});}
+ }
  if(request.method!=="GET")return adminResponse("Method not allowed",405,{"allow":"GET"});
  if(!await kickAdminAuthorized(request,env))return isStatus?adminResponse("管理者ログインが必要です。",401):adminLoginPage();
  if(isStatus)return kickConnectionStatus(request,env);
- const page=KICK_ADMIN_PAGE.replace("共有端末では利用後にブラウザーを閉じてください。ブラウザーのHTTP認証情報が保持される場合があります。","セッションの有効期限は1時間です。利用後はログアウトしてください。").replace("</main>",'<form method="post" action="/admin/kick-api/logout"><button class="kick-check" type="submit">ログアウト</button></form></main>');
+ const page=KICK_ADMIN_PAGE.replace("共有端末では利用後にブラウザーを閉じてください。ブラウザーのHTTP認証情報が保持される場合があります。","セッションの有効期限は1時間です。利用後はログアウトしてください。").replace("</main>","<section class=\"kick-api-settings\"><h2>対象配信者の公式イベント購読</h2><p>KickのDeveloper設定でWebhookを有効にしてから登録してください。1配信者ずつ登録します。チャットは通信量・D1無料枠の消費が増えるため必要な配信者だけ選択してください。受信したコメント本文や名前は保存しません。</p><form method=\"post\" action=\"/admin/kick-api/subscribe\"><label>Kickユーザー名 <input name=\"slug\" required pattern=\"[A-Za-z0-9_-]{1,40}\" maxlength=\"40\" placeholder=\"配信者のユーザー名\"></label> <label><input type=\"checkbox\" name=\"chat\" value=\"yes\"> チャット受信も登録する</label> <button class=\"kick-check\" type=\"submit\">公式購読を登録・確認</button></form><p class=\"hint\">既存購読は再登録しません。登録結果画面からブラウザーの戻るボタンで戻れます。チャットの記録はランキング取得時に10分を過ぎた分を削除します。</p></section>"+'<form method="post" action="/admin/kick-api/logout"><button class="kick-check" type="submit">ログアウト</button></form></main>');
  return adminResponse(page,200,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 async function kickConnectionStatus(request,env){
@@ -1782,18 +1857,18 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r96"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r97"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
 export default {async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
- if(["/admin/kick-api","/admin/kick-api/","/admin/kick-api/status","/admin/kick-api/login","/admin/kick-api/logout","/api/kick-connection"].includes(url.pathname))return kickAdminRoute(request,env,url.pathname);
+ if(["/admin/kick-api","/admin/kick-api/","/admin/kick-api/status","/admin/kick-api/login","/admin/kick-api/logout","/admin/kick-api/subscribe","/api/kick-connection"].includes(url.pathname))return kickAdminRoute(request,env,url.pathname);
  if(url.pathname==="/api/kick-gift-events")return kickGiftWebhook(request,env);
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r96",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r97",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(url.pathname==="/api/rankings-live"){
   if(request.method!=="GET"||request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return json({status:"error",message:"WebSocket接続のみ対応"},426);
