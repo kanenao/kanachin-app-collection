@@ -971,8 +971,8 @@ async function nicoRanking(origin){
  const sources=[{name:"勢いランキング",url:"https://ikioi-ranking.com/v/nico"},{name:"ちくわちゃん",url:"https://www.chikuwachan.com/live/NCU/"},{name:"nico-ran.stream",url:"https://nico-ran.stream/"},{name:"ニコ生公式ランキング",url:"https://live.nicovideo.jp/ranking"}];
  const results=await Promise.all(sources.map(async source=>{if(source.name==="nico-ran.stream")return fetchNicoReferencePage(origin,source);try{const html=await fetchBounded(source.url,{headers:{accept:"text/html,application/json;q=0.9"}});let rows=[];if(source.name==="勢いランキング")rows=parseArchiveRanking(html,"nico");else{try{rows=unique(extractJsonRows(JSON.parse(html)));}catch{}if(!rows.length)rows=parseRankingPage(html);}if(source.name==="ちくわちゃん"){supplementNicoHtml(html,rows);const images=nicoListingImageMap(html);for(const row of rows){const found=images.get(row.liveId)||[];row.programThumbnails=[...new Set([...(row.programThumbnails||[]),...found])].slice(0,9);}}if(source.name==="nico-ran.stream"){const cards=parseNicoRanCards(html);if(cards.length){const map=new Map(rows.map(r=>[r.liveId,r]));rows=cards.map(card=>{const r=map.get(card.liveId)||{};return {...r,...card,name:card.name||r.name||"",profileUrl:card.profileUrl||r.profileUrl||"",visitors:card.visitors??r.visitors??null,comments:card.comments??r.comments??null,active10m:card.active10m??r.active10m??null,advertising:card.advertising??r.advertising??null,gift:card.gift??r.gift??null};});}}return {source,rows,reason:rows.length?"":"番組データなし"};}catch(e){return {source,rows:[],reason:diagnostic(e)};}}));
  const best=selectNicoReference(results)||selectRankingSource(results.filter(r=>r.source.name!=="nico-ran.stream"))||selectRankingSource(results);if(best){const preferred=results.find(r=>r.source.name==="nico-ran.stream");if(preferred){const map=new Map(preferred.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=map.get(row.liveId);if(other){for(const k of ["advertising","gift","active10m"])if(other[k]!=null)row[k]=other[k];}}}}if(best)for(const result of results){if(result!==best){const lookup=new Map(result.rows.map(r=>[r.liveId,r]));for(const row of best.rows){const other=lookup.get(row.liveId);if(!other)continue;row.programThumbnails=[...new Set([...(row.programThumbnails||[]),...(other.programThumbnails||[])])].slice(0,8);for(const k of ["name","profileUrl","historyOwner","channelOwner","providerKind","visitors","comments","gift","advertising","startedAt","duration","thumbnailUrl","active10m","momentum"])if((row[k]==null||row[k]==="")&&other[k]!=null&&other[k]!==""){row[k]=other[k];if((k==="advertising"||k==="gift")&&result.source.name==="ニコ生公式ランキング")row[k+"Source"]="ニコ生公式ランキング";}}}}
- const officialCoverage=best?officialRankingSupplement(best.rows.slice(0,10),results.find(r=>r.source.name==="ニコ生公式ランキング")):null;
- const rss=await rssRequest;if(best){for(const row of best.rows.slice(0,10)){const image=rankingImageUrl(rss.get(row.liveId));if(image&&!nicoBrandImage(image)){row.rssThumbnail=image;row.programThumbnails=[...new Set([...(row.programThumbnails||[]),image])].slice(0,9);row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),image].filter(Boolean))].slice(0,8);if(!row.thumbnailUrl)row.thumbnailUrl=image;}}await enrichPublicNico(best.rows,origin);}
+ let officialCoverage=null;try{if(best)officialCoverage=officialRankingSupplement(best.rows.slice(0,10),results.find(r=>r.source.name==="ニコ生公式ランキング"));}catch{}
+ const rss=await rssRequest;if(best){for(const row of best.rows.slice(0,10)){const image=rankingImageUrl(rss.get(row.liveId));if(image&&!nicoBrandImage(image)){row.rssThumbnail=image;row.programThumbnails=[...new Set([...(row.programThumbnails||[]),image])].slice(0,9);row.thumbnailCandidates=[...new Set([row.thumbnailUrl,...(row.thumbnailCandidates||[]),image].filter(Boolean))].slice(0,8);if(!row.thumbnailUrl)row.thumbnailUrl=image;}}try{await enrichPublicNico(best.rows,origin);}catch{}}
  if(best)return {source:best.source.name,sourceUrl:best.source.url,complete:false,metric:best.source.name==="勢いランキング"?"公開勢いポイント順":best.source.name==="nico-ran.stream"?"nico-ran.stream掲載順（参考順位）":"公開掲載順（参考順位）",coverage:nicoReferenceCoverage(best.rows.slice(0,10),results.find(r=>r.source.name==="nico-ran.stream")),officialCoverage,fetchedAt:new Date().toISOString(),entries:best.rows.slice(0,10).map(r=>({id:r.liveId,name:r.name,...nicoAccountIdentity(r),profileUrl:r.profileUrl||"",historyOwner:r.historyOwner||"",channelOwner:r.channelOwner||"",providerKind:r.providerKind||"",programThumbnails:r.programThumbnails||[],rssThumbnail:r.rssThumbnail||"",title:r.title,url:"https://live.nicovideo.jp/watch/"+r.liveId,momentum:r.momentum??null,visitors:r.visitors??null,comments:r.comments??null,active10m:r.active10m??null,active60s:r.active60s??null,activitySampleEnd:r.activitySampleEnd??null,advertising:r.advertising??null,gift:r.gift??null,advertisingSource:r.advertisingSource||"",giftSource:r.giftSource||"",duration:r.duration||'',startedAt:r.startedAt,thumbnail:r.providerKind==="channel"?(r.programThumbnails?.[0]||""):r.thumbnailUrl,thumbnailCandidates:r.providerKind==="channel"?(r.programThumbnails||[]):(r.thumbnailCandidates||[])}))};
  const diagnostics=results.map(r=>r.source.name+": "+r.reason);
  return {status:"error",message:"ニコ生取得失敗（"+diagnostics.join("／")+"）",entries:[]};
@@ -1799,7 +1799,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r97</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r98</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1857,7 +1857,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r97"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r98"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1868,7 +1868,7 @@ export default {async fetch(request,env,ctx){
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r97",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r98",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(url.pathname==="/api/rankings-live"){
   if(request.method!=="GET"||request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return json({status:"error",message:"WebSocket接続のみ対応"},426);
@@ -1883,7 +1883,7 @@ export default {async fetch(request,env,ctx){
 }};
 async function rankingResponse(request,env,type,emit=null){
  const url=new URL(request.url),[key,backup]=rankingCacheKeys(url.origin,type);
- async function previousRanking(){try{const saved=await caches.default.match(backup);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=300000)return json({...data,stale:true},200);}}catch{}return null;}
+ async function previousRanking(){for(const candidate of [backup,...(type==="nico"?[new Request(url.origin+"/api/rankings/nico?last-good=r58")]:[])])try{const saved=await caches.default.match(candidate);if(saved){const data=await saved.json();const age=Date.now()-Date.parse(data.fetchedAt);if(data.entries?.length&&age>=0&&age<=900000)return json({...data,stale:true},200);}}catch{}return null;}
  try{const cached=await caches.default.match(key);if(cached)return cached;}catch{}
  try{
   let data=type==="nico"?await nicoRanking(url.origin):await kickRanking(env).catch(e=>publicKickRanking("Kick公式API: "+diagnostic(e)));
@@ -1891,7 +1891,7 @@ async function rankingResponse(request,env,type,emit=null){
   const ok=!data.status||data.status==="ok";
   if(!ok){const previous=await previousRanking();if(previous)return previous;}
   const response=json(ok?{status:"ok",...data}:data,data.status==="error"?502:200,ok?"public, max-age=10":"no-store");
-  if(ok){try{await caches.default.put(key,response.clone());if(data.entries?.length)await caches.default.put(backup,json({status:"ok",...data},200,"public, max-age=300"));}catch{}}
+  if(ok){try{await caches.default.put(key,response.clone());if(data.entries?.length)await caches.default.put(backup,json({status:"ok",...data},200,"public, max-age="+(type==="nico"?900:300)));}catch{}}
   return response;
  }catch(e){const previous=await previousRanking();if(previous)return previous;return json({status:"error",message:(type==="nico"?"ニコ生":"Kick")+"取得失敗: "+diagnostic(e),entries:[]},502);}
 }
@@ -1961,7 +1961,7 @@ export class RankingLiveHub extends DurableObject{
   const saved=await this.ctx.storage.get("snapshot");
   for(const kind of ["nico","kick"]){
    const frame=this.latest.get(kind)||saved?.[kind];
-   if(frame&&Date.now()-Date.parse(frame.fetchedAt)<=300000)this.send(server,{kind,data:{...frame,stale:Date.now()-Date.parse(frame.fetchedAt)>90000||!!frame.stale}});
+   if(frame&&Date.now()-Date.parse(frame.fetchedAt)<=(kind==="nico"?900000:300000))this.send(server,{kind,data:{...frame,stale:Date.now()-Date.parse(frame.fetchedAt)>90000||!!frame.stale}});
   }
   const stats=this.stats.size?[...this.stats.values()]:saved?.stats||[];
   if(stats.length)this.send(server,{kind:"nico-stats",data:{status:"ok",entries:stats.filter(r=>Date.now()-r.checkedAt<=900000)}});
@@ -2006,10 +2006,10 @@ export class RankingLiveHub extends DurableObject{
    const receive=(kind,frame)=>{
     if(frame.status==="ok"&&Array.isArray(frame.entries)&&Number.isFinite(Date.parse(frame.fetchedAt))){
      this.latest.set(kind,frame);this.broadcast(kind,frame);
-    }else this.broadcast("state",{message:(kind==="nico"?"ニコ生":"Kick")+"取得再試行待ち",paused:false});
+    }else this.broadcast("rank-error",{platform:kind,message:frame.message||(kind==="nico"?"ニコ生":"Kick")+"取得再試行待ち"});
    };
    const nico=async()=>{
-    await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));
+    try{await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));}catch(e){const old=this.latest.get("nico");if(old?.entries?.length&&Date.now()-Date.parse(old.fetchedAt)<=900000)this.broadcast("nico",{...old,stale:true});this.broadcast("rank-error",{platform:"nico",message:"ニコ生一覧取得失敗: "+diagnostic(e)});return;}
     const ids=new Set((this.latest.get("nico")?.entries||[]).map(r=>r.id));
     for(const id of this.stats.keys())if(!ids.has(id))this.stats.delete(id);
     await liveReadFrames(await feed.fetch(new Request("https://internal/nico-stats",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({entries:this.latest.get("nico")?.entries||[]})})),frame=>{
