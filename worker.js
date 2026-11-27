@@ -2005,7 +2005,7 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
  if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request);
  if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
- if(url.pathname==="/home-ranking")return homeRankingGateway(request);
+ if(url.pathname==="/home-ranking")return request.method==="GET"||request.method==="HEAD"?new Response(null,{status:302,headers:{location:"/api/ranking-page","cache-control":"no-store"}}):json({status:"error"},405);
  if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r109",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
