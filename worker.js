@@ -1843,7 +1843,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r107</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r108</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1903,7 +1903,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r107"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r108"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1914,6 +1914,34 @@ function adminRouteTarget(path,method){
  if(["/admin","/admin/status","/admin/login","/admin/logout","/admin/subscribe","/admin/subscriptions","/admin/budget","/api/kick-connection"].includes(path))return {path};
  return null;
 }
+
+const HOME_RANKING_ORIGIN="https://kane-nao.tail7d733c.ts.net";
+function homeRankingPayload(d){
+ return d?.server==="LIVE Ranking Server"&&typeof d.mode==="string"&&/^(?:hybrid-v\d+\.\d+\.\d+|live-bridge)$/.test(d.mode)&&["OK","partial","pending"].includes(d.status)?"online":"offline";
+}
+async function homeRankingStatus(request){
+ const key=new Request(new URL("/__cache/home-ranking-health-r108",request.url));
+ try{const hit=await caches.default.match(key);if(hit){const saved=await hit.json();if(["online","offline"].includes(saved.status)&&Number.isFinite(saved.checkedAt)&&Date.now()-saved.checkedAt>=0&&Date.now()-saved.checkedAt<20000)return saved;}}catch{}
+ let status="offline";
+ try{
+  const response=await fetch(HOME_RANKING_ORIGIN+"/health",{method:"GET",headers:{accept:"application/json"},redirect:"manual",signal:AbortSignal.timeout(5000)});
+  if(response.ok&&response.body&&/application\/json/i.test(response.headers.get("content-type")||"")&&Number(response.headers.get("content-length")||0)<=65536){
+   const reader=response.body.getReader(),decoder=new TextDecoder();let total=0,raw="";
+   try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>65536){await reader.cancel();throw Error("health size");}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();status=homeRankingPayload(JSON.parse(raw));}finally{reader.releaseLock();}
+  }else await response.body?.cancel();
+ }catch{}
+ const result={status,checkedAt:Date.now()};
+ try{await caches.default.put(key,json(result,200,"public, max-age=20"));}catch{}
+ return result;
+}
+async function homeRankingGateway(request){
+ if(request.method!=="GET")return json({status:"error"},405);
+ const result=await homeRankingStatus(request);
+ if(result.status==="online")return new Response(null,{status:302,headers:{location:HOME_RANKING_ORIGIN+"/dashboard","cache-control":"no-store"}});
+ const html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="30"><title>メンテナンス中 | LIVE配信ランキング</title><style>body{background:#f1f5fa;color:#182236;font:16px/1.7 system-ui,Meiryo,sans-serif;margin:0}main{max-width:640px;margin:48px auto;padding:24px;background:white;border:1px solid #dce4ee;border-left:5px solid #b27616;border-radius:12px}h1{color:#87540c;font-size:26px}a{color:#1859b8}p{overflow-wrap:anywhere}@media(max-width:700px){main{margin:18px}}</style></head><body><main><h1>メンテナンス中</h1><p>自宅サーバー版のLIVE配信ランキングは現在一時停止中、または通信できない状態です。</p><p>復旧までCloudflare版ランキングをご利用ください。このページは30秒ごとに再確認します。</p><p><a href="/api/ranking-page">従来のLIVE配信ランキングを見る</a></p><p><a href="/home-ranking">再接続する</a></p><p><a href="/">トップページへ戻る</a></p></main></body></html>';
+ return new Response(html,{status:503,headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","retry-after":"30","x-content-type-options":"nosniff","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}});
+}
+
 export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.RankingLiveHub;await ns.get(ns.idFromName("shared-rankings-v1")).fetch(new Request("https://internal/rankings-warm",{method:"POST"}));}catch{}},async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  const adminTarget=adminRouteTarget(url.pathname,request.method);
@@ -1923,7 +1951,9 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r107",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
+ if(url.pathname==="/home-ranking")return homeRankingGateway(request);
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r108",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}
