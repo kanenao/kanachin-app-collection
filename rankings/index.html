@@ -109,6 +109,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 @media(max-width:600px){.ranking-page{width:calc(100% - 12px)}.rank-panel{padding:5px}.rank-list li,.rank-list li.rank-top-three{grid-template-columns:49px minmax(0,1fr);gap:5px;padding:7px 5px}.rank-list li>strong,.rank-list li.rank-top-three>strong{font-size:19px}.rank-position .rank-move{font-size:9px;padding:2px}.ranking-page .rank-top,.ranking-page .rank-top-three .rank-top{grid-template-columns:90px minmax(0,1fr);gap:6px}.rank-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.rank-metrics .rank-overall{grid-column:1/-1;grid-row:auto;display:grid;grid-template-columns:1fr auto}.rank-metrics .rank-overall dd{font-size:18px}.rank-title{font-size:13px}.rank-view-hint{display:none}.rank-view-controls button{padding:5px 8px;font-size:12px}}
 .rank-auto-countdown{align-self:center;padding:6px 10px;border:1px solid #c7d8ed;border-radius:6px;background:#edf4ff;color:#245fb2;font-size:12px;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
 .rank-duration{font-variant-numeric:tabular-nums;white-space:nowrap!important}
+.rank-trend-label{display:block;text-align:center;font-size:10px;line-height:1.25;color:var(--muted);white-space:nowrap}.rank-sparkline{height:auto;min-height:29px}.rank-sparkline svg{height:29px;display:block}
 </style>
 </head>
 <body>
@@ -116,7 +117,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <main class="wrap ranking-page">
 <section class="rankings" id="rankings" aria-labelledby="ranking-title"><div class="heading"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h1 id="ranking-title">LIVE配信ランキング</h1></div><div class="rank-actions"><span id="rank-auto-countdown" class="rank-auto-countdown" aria-label="自動更新までの時間">自動更新 60秒</span><button id="rank-refresh" type="button">ランキング更新</button></div></div><p class="hint">各サービスの取得元上位10番組を独自総合スコアで比較。閲覧前もサーバー側で両ランキングを3分ごとに取得。閲覧中は60秒自動更新し、追加統計を順次反映します。未取得項目は採点対象外です。</p><details class="rank-explanation"><summary>集計方法・表示の見方</summary><p>全配信の順位ではなく、取得元の上位10番組を比較しています。配信元の定期取得が必要な項目はサーバー側で共有取得します。未取得項目は全候補の採点から外して暫定順位を表示します。配信時間は採点対象外。順位推移は直近10分、新規ランクインは60秒間NEW表示。</p></details><div class="rank-legend"><span><b class="up">▲ UP</b> 上昇</span><span><b class="down">▼ DOWN</b> 下降</span><span><b>→ KEEP</b> 維持</span><span><b class="new">NEW</b> 新規</span><span>未取得は採点対象外・総合100点満点</span></div><p class="hint" id="rank-health" role="status">ランキングAPIを確認中…</p><p class="hint" id="rank-live-status" role="status" aria-live="polite">共有ライブ接続準備中…</p><div class="rank-view-controls" role="group" aria-label="表示する配信サービス"><button type="button" data-rank-view="all" aria-pressed="true">すべて</button><button type="button" data-rank-view="nico" aria-pressed="false">ニコニコ生放送</button><button type="button" data-rank-view="kick" aria-pressed="false">Kick</button><span class="rank-view-hint">横長一覧 · 各サービス TOP 10</span></div><div class="rank-panels"><section class="rank-panel" data-platform="nico"><div class="rank-panel-head"><h3>ニコニコ生放送</h3><span class="rank-count">TOP 10</span></div><div class="rank-toolbar"><label>並び順 <select class="rank-sort" aria-label="ニコニコ生放送の並び順"><option value="overall">総合勢い順</option><option value="momentum">勢いpt順</option><option value="visitors">来場者順</option><option value="comments">コメント順</option><option value="active">アクティブ10分順</option><option value="advertising">広告pt順</option><option value="gift">ギフトpt順</option></select></label><span class="rank-updated">取得時刻 —</span></div><p class="rank-mode">公開ランキング</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section><section class="rank-panel" data-platform="kick"><div class="rank-panel-head"><h3>Kick</h3><span class="rank-count">TOP 10</span></div><div class="rank-toolbar"><label>並び順 <select class="rank-sort" aria-label="Kickの並び順"><option value="overall">総合勢い順</option><option value="viewers">同接順</option><option value="comments">チャット30秒順</option><option value="active">アクティブ10分順</option><option value="kicksGift">KICKs順</option><option value="giftedSubscriptions">ギフトサブスク順</option></select></label><span class="rank-updated">取得時刻 —</span></div><p class="rank-mode">同時視聴者数</p><p class="hint rank-status" role="status">取得中…</p><ol class="rank-list"></ol></section></div></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r101 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r102 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 function recordRankHistory(previous,data,type){
@@ -139,7 +140,7 @@ function rankGraphPaths(history,id){
  for(const s of samples){
   const rank=Object.prototype.hasOwnProperty.call(s.ranks,id)?s.ranks[id]:null;
   if(!Number.isInteger(rank)||rank<1||rank>10){flush();prior=null;continue;}
-  if(prior!==null&&s.at-prior>45000)flush();
+  if(prior!==null&&s.at-prior>240000)flush();
   const point={x:3+Math.max(0,Math.min(1,(s.at-(last-600000))/600000))*94,y:3+(rank-1)*22/9,rank};
   current.push(point);points.push(point);count++;prior=s.at;
  }
@@ -169,7 +170,7 @@ function latestSavedHistory(memory,saved){
 function previousRankSnapshot(history,data){
  if(!history||history.source!==data.source||history.metric!==data.metric)return null;
  const t=Date.parse(data.fetchedAt),s=[...history.samples].reverse().find(s=>s.at<t);
- if(!s||t-s.at>180000)return null;
+ if(!s||t-s.at>240000)return null;
  return {source:history.source,metric:history.metric,fetchedAt:new Date(s.at).toISOString(),entries:Object.entries(s.ranks).sort((a,b)=>a[1]-b[1]).map(([id,rank])=>({id,rank}))};
 }
 const rankHistoryKey=type=>"kanachin-ranking-history-v1:"+type;
@@ -188,7 +189,7 @@ function isNewRankEntry(history,data,id,now){
  if(!current||current.at!==t||!Object.prototype.hasOwnProperty.call(current.ranks,id))return false;
  for(let i=samples.length-2;i>=0;i--){
   const prior=samples[i];
-  if(current.at-prior.at>45000)return false;
+  if(current.at-prior.at>240000)return false;
   if(!Object.prototype.hasOwnProperty.call(prior.ranks,id)){
    // A short/partial previous result is not proof that a stream was outside the top ten.
    return Object.keys(prior.ranks).length===10&&now>=current.at&&now-current.at<60000;
@@ -197,15 +198,48 @@ function isNewRankEntry(history,data,id,now){
  }
  return false;
 }
+const sharedRankTrends=new Map();
+function acceptSharedTrend(type,trend){
+ if(!trend||!Array.isArray(trend.samples))return;
+ const now=Date.now(),samples=[];
+ for(const x of trend.samples.slice(-21)){
+  if(!Number.isFinite(x?.at)||x.at<now-600000||x.at>now+30000||typeof x.source!=="string"||typeof x.metric!=="string"||!x.ranks||typeof x.ranks!=="object")continue;
+  const ranks=Object.create(null),starts=Object.create(null),used=new Set();
+  for(const [id,rank] of Object.entries(x.ranks).slice(0,10))if((type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(id)&&Number.isInteger(rank)&&rank>=1&&rank<=10&&!used.has(rank)){ranks[id]=rank;used.add(rank);starts[id]=typeof x.starts?.[id]==="string"?x.starts[id]:"";}
+  samples.push({at:x.at,source:x.source,metric:x.metric,ranks,starts});
+ }
+ samples.sort((a,b)=>a.at-b.at);
+ const old=sharedRankTrends.get(type);
+ if(old?.samples?.length&&(!samples.length||old.samples.at(-1).at>samples.at(-1).at))return;
+ sharedRankTrends.set(type,{samples,previous:trend.previous,current:trend.current});
+}
+function sharedTrendBaseline(type,data){
+ const trend=sharedRankTrends.get(type),at=Date.parse(data.fetchedAt);
+ return [trend?.current,trend?.previous].filter(v=>v?.status==="ok"&&Array.isArray(v.entries)&&v.source===data.source&&v.metric===(data.sourceMetric||data.metric)&&Date.parse(v.fetchedAt)<at&&at-Date.parse(v.fetchedAt)<=240000).sort((a,b)=>Date.parse(b.fetchedAt)-Date.parse(a.fetchedAt))[0]||null;
+}
+function sharedGraphPaths(type,row,now=Date.now()){
+ const samples=(sharedRankTrends.get(type)?.samples||[]).filter(x=>x.at>=now-600000&&x.at<=now+30000);
+ if(!samples.length)return null;
+ const points=[],paths=[];let segment=[],prior=null;
+ const flush=()=>{if(segment.length>1)paths.push(segment.map((p,i)=>(i?"L":"M")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" "));segment=[];};
+ const start=Date.parse(row.startedAt);
+ for(const sample of samples){
+  const rank=sample.ranks[row.id],same=type==="nico"||Number.isFinite(start)&&Date.parse(sample.starts[row.id])===start;
+  if(!Number.isInteger(rank)||!same){flush();prior=null;continue;}
+  if(prior&&(sample.at-prior.at>240000||sample.source!==prior.source||sample.metric!==prior.metric))flush();
+  const point={x:3+Math.max(0,Math.min(1,(sample.at-(now-600000))/600000))*94,y:3+(rank-1)*22/9,rank,at:sample.at};points.push(point);segment.push(point);prior=sample;
+ }
+ flush();return {paths,points,count:points.length,shared:true};
+}
 function makeRankGraph(type,row){
- const chart=element("span","rank-sparkline"),data=rankGraphPaths(rankingHistory.get(type),row.id);
- if(data.count<2){chart.textContent="推移集計中";return chart;}
+ const chart=element("span","rank-sparkline"),data=sharedGraphPaths(type,row)||rankGraphPaths(rankingHistory.get(type),row.id);
+ if(data.count===0){chart.textContent="実測待ち（0回）";return chart;}
  const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");svg.setAttribute("viewBox","0 0 100 29");svg.setAttribute("role","img");svg.setAttribute("aria-label","直近10分の順位推移・上が1位、下が10位");svg.setAttribute("preserveAspectRatio","none");
- const title=document.createElementNS(ns,"title");title.textContent="直近10分の順位推移（"+data.count+"回取得、最新"+data.points[data.points.length-1].rank+"位）";svg.append(title);
+ const title=document.createElementNS(ns,"title");title.textContent="直近10分の順位推移（"+data.count+"回実測、最高"+Math.min(...data.points.map(p=>p.rank))+"位・最新"+data.points[data.points.length-1].rank+"位）"+(data.shared?"／サーバー集計・異なる採点条件は線を分離":"");svg.append(title);
  for(const y of [3,25]){const line=document.createElementNS(ns,"line");line.setAttribute("x1","3");line.setAttribute("x2","97");line.setAttribute("y1",String(y));line.setAttribute("y2",String(y));line.setAttribute("class","rank-spark-guide");svg.append(line);}
  for(const d of data.paths){const path=document.createElementNS(ns,"path");path.setAttribute("d",d);path.setAttribute("class","rank-spark-path");svg.append(path);}
  for(const p of data.points){const dot=document.createElementNS(ns,"circle");dot.setAttribute("cx",String(p.x));dot.setAttribute("cy",String(p.y));dot.setAttribute("r","1.1");dot.setAttribute("class","rank-spark-dot");svg.append(dot);}
- chart.append(svg);return chart;
+ chart.append(svg);chart.append(element("small","rank-trend-label",data.count+"回実測 / 最高"+Math.min(...data.points.map(p=>p.rank))+"位"));return chart;
 }
 
 const overallWeights={nico:[["active10m",30],["momentum",20],["visitors",15],["comments",15],["advertising",10],["gift",10]],kick:[["viewers",25],["activeUsers",25],["receivedComments",20],["viewerRate",15],["kicksGift",5],["giftedSubscriptions",5],["giftedSubscriptionsReceived",5]]};
@@ -241,14 +275,14 @@ function compareRanking(current,previous,type){
  const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:r.rank??i+1}]));
  const seconds=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
  return current.entries.slice(0,10).map((row,i)=>{
-  const old=before.get(row.id),same=!!old&&current.source===previous?.source&&(current.sourceMetric||current.metric)===(previous?.sourceMetric||previous?.metric)&&seconds>=1&&seconds<=180&&(type==="nico"||(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(old.startedAt)));
+  const old=before.get(row.id),same=!!old&&current.source===previous?.source&&(current.sourceMetric||current.metric)===(previous?.sourceMetric||previous?.metric)&&seconds>=1&&seconds<=240&&(type==="nico"||(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(old.startedAt)));
   const delta=(key,monotonic=false)=>same&&Number.isSafeInteger(row[key])&&Number.isSafeInteger(old[key])&&(!monotonic||row[key]>=old[key])?row[key]-old[key]:null;
-  const rankComparable=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=180;
+  const rankComparable=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=240;
   return {...row,previousRank:rankComparable?old.rank:null,rankChange:rankComparable?old.rank-i-1:null,viewerChange:delta("viewers"),viewerRate:delta("viewers")===null?null:delta("viewers")*60/seconds,visitorChange:delta("visitors",true),commentChange:delta("comments",true)};
  });
 }
 const rankPanels=[...document.querySelectorAll(".rank-panel")],rankPrevious=new Map(),rankBusy=new Set(),rankLast=new Map();
-const rankingRevision="2026.11.27-r101";
+const rankingRevision="2026.11.27-r102";
 const numeric=v=>Number.isSafeInteger(v)&&v>=0;
 const format=v=>v.toLocaleString("ja-JP");
 function element(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
@@ -578,13 +612,14 @@ function mergeKickProgress(data,previous,now){
 function acceptRankFrame(panel,data,previous,progress=false){
  const type=panel.dataset.platform,now=Date.now();
  if(data.status!=="ok"||!Array.isArray(data.entries)||!Number.isFinite(Date.parse(data.fetchedAt)))throw Error(data.message||"取得失敗");
+ if(data.sharedTrend)acceptSharedTrend(type,data.sharedTrend);
  if(data.stale){const kept=rankPrevious.get(type)||previous||data;rankPrevious.set(type,kept);renderRanking(panel,kept,true);return;}
  if(progress&&type==="kick")data=mergeKickProgress(data,previous,now);
  const history=latestSavedHistory(validateRankHistory(rankingHistory.get(type),type,now),readRankHistory(type,now));
  data.sourceMetric=data.metric;
  data.metric="総合勢いランキング r80";
  if(type==="nico")data.entries=data.entries.map(mergeNicoSupplement);
- const before=previous?.sourceMetric===data.sourceMetric?previous:null;
+ const before=previous?.sourceMetric===data.sourceMetric?previous:sharedTrendBaseline(type,data);
  const ranked=scoreOverall(compareRanking(data,before,type),type,now);
  data.entries=ranked.entries;data.overallUsed=ranked.used;data.overallTotal=ranked.total;data.overallWeight=ranked.weight;
  data.metric="総合勢い r80 / "+ranked.keys;
@@ -646,6 +681,7 @@ const liveStatus=message=>{document.querySelector("#rank-live-status").textConte
 function liveSocketOpen(){return liveSocket?.readyState===WebSocket.OPEN;}
 function liveFrame(frame){
  if(frame.kind==="state"){autoPaused=!!frame.data?.paused;autoUpdating=!!frame.data?.updating;if(Number.isFinite(frame.data?.nextAt))autoNextAt=frame.data.nextAt;else if(!autoUpdating)autoNextAt=Date.now()+AUTO_RANK_INTERVAL;showAutoCountdown();liveStatus(frame.data?.message||"共有ライブ接続中");if(frame.data?.paused)for(const panel of rankPanels){const old=rankPrevious.get(panel.dataset.platform);if(old)renderRanking(panel,old,true);}return;}
+ if(frame.kind==="rank-trend"){const type=frame.data?.platform;if(["nico","kick"].includes(type)){acceptSharedTrend(type,frame.data.trend);const panel=rankPanels.find(p=>p.dataset.platform===type),old=rankPrevious.get(type);if(panel&&old)renderRanking(panel,old,!panel.querySelector(".rank-status").hidden);}return;}
  if(frame.kind==="rank-error"){const type=frame.data?.platform,panel=rankPanels.find(p=>p.dataset.platform===type);if(panel){const old=rankPrevious.get(type);renderRanking(panel,old||{status:"error",entries:[],message:frame.data.message||"取得失敗"},!!old);}return;}
  if(frame.kind==="nico-stats"){const panel=rankPanels.find(p=>p.dataset.platform==="nico");if(panel)applyNicoStatistics(frame.data,panel);return;}
  if(!["nico","kick"].includes(frame.kind)||!frame.data)return;
