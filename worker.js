@@ -1185,7 +1185,7 @@ async function registerKickRankingEvents(request,env,origin){
 async function listKickRegisteredChannels(env,readApi,now=Date.now()){
  const rows=giftSubscriptionRows(await readApi("https://api.kick.com/public/v1/events/subscriptions"));
  const allowed=new Set(giftAllowedIds(env)),restricted=!!String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim(),groups=new Map(),seen=new Set();
- try{const auto=(await env.KICK_GIFT_DB?.prepare("SELECT id FROM kick_auto_gift_subscriptions LIMIT 121").all())?.results||[];for(const row of auto)allowed.add(row.id);}catch{}
+ try{const auto=(await env.KICK_GIFT_DB?.prepare("SELECT id FROM kick_auto_gift_subscriptions LIMIT 181").all())?.results||[];for(const row of auto)allowed.add(row.id);}catch{}
  for(const r of rows){
   const id=officialGiftCount(r.broadcaster_user_id),sub=r.id.toUpperCase();
   if(seen.has(sub))continue;seen.add(sub);
@@ -1845,7 +1845,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r111</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r112</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1905,7 +1905,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r111"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r112"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1993,15 +1993,16 @@ async function readHomeImage(response,max=1048576){
  return homeImageType(bytes)===type?{bytes,type}:null;
 }
 
-const AUTO_GIFT_KINDS=["kicks.gifted","channel.subscription.gifts"];
+const AUTO_GIFT_KINDS=["kicks.gifted","channel.subscription.gifts","chat.message.sent"];
 const AUTO_GIFT_SCHEMA="CREATE TABLE IF NOT EXISTS kick_auto_gift_subscriptions (id TEXT PRIMARY KEY,broadcaster_id INTEGER NOT NULL,kind TEXT NOT NULL,created INTEGER NOT NULL,last_seen INTEGER NOT NULL)";
-function giftAutoPlan(target,existing,owned,allowed,attempts,now){
- const events=["kicks.gifted","channel.subscription.gifts"],valid=new Set(target.map(x=>x.id)),protectedIds=new Set(allowed),byKey=new Set(existing.map(x=>x.broadcaster_user_id+":"+x.event)),pending=new Set(owned.filter(x=>now-x.created<900000).map(x=>x.broadcaster_id+":"+x.kind));
- const remove=owned.filter(x=>!valid.has(x.broadcaster_id)&&now-x.last_seen>=900000&&!protectedIds.has(x.id)&&existing.some(e=>e.id.toUpperCase()===x.id&&Number(e.broadcaster_user_id)===x.broadcaster_id&&e.event===x.kind)).slice(0,12);
- const add=[];let capacity=Math.max(0,120-owned.length);
- for(const t of target){if(add.length>=5||capacity<=0)break;if(now-(attempts[t.id]||0)<900000)continue;const missing=events.filter(e=>!byKey.has(t.id+":"+e)&&!pending.has(t.id+":"+e)).slice(0,capacity);if(missing.length){add.push({id:t.id,events:missing});capacity-=missing.length;}}
+function giftAutoPlan(target,existing,owned,allowed,attempts,now,chatLimit=10){
+ const gifts=["kicks.gifted","channel.subscription.gifts"],chat="chat.message.sent",wanted=new Map(target.map((x,i)=>[x.id,i<chatLimit?[...gifts,chat]:gifts])),protectedIds=new Set(allowed),byKey=new Set(existing.map(x=>x.broadcaster_user_id+":"+x.event)),pending=new Set(owned.filter(x=>now-x.created<900000).map(x=>x.broadcaster_id+":"+x.kind));
+ const remove=owned.filter(x=>!(wanted.get(x.broadcaster_id)||[]).includes(x.kind)&&now-x.last_seen>=900000&&!protectedIds.has(x.id)&&existing.some(e=>e.id.toUpperCase()===x.id&&Number(e.broadcaster_user_id)===x.broadcaster_id&&e.event===x.kind)).slice(0,12);
+ const add=[];let capacity=Math.max(0,180-owned.length),chatCapacity=Math.max(0,chatLimit+10-owned.filter(x=>x.kind===chat).length);
+ for(const t of target){if(add.length>=5||capacity<=0)break;const missing=(wanted.get(t.id)||[]).filter(e=>!byKey.has(t.id+":"+e)&&!pending.has(t.id+":"+e)&&now-(attempts[t.id+":"+e]||0)>=900000&&(e!==chat||chatCapacity>0)).slice(0,capacity);if(missing.length){add.push({id:t.id,events:missing});capacity-=missing.length;if(missing.includes(chat))chatCapacity--;}}
  return {add,remove};
 }
+function autoChatLimit(v){if(v==null||v==="")return 10;return /^\d{1,2}$/.test(String(v))?Math.min(50,Number(v)):10;}
 async function autoGiftMatch(env,id,event){
  if(!env.KICK_GIFT_DB)return false;
  try{const row=await env.KICK_GIFT_DB.prepare("SELECT id FROM kick_auto_gift_subscriptions WHERE id=? AND broadcaster_id=? AND kind=?").bind(id.toUpperCase(),event.broadcaster,event.type).first();return !!row;}catch{return false;}
@@ -2023,20 +2024,24 @@ async function syncHomeGiftSubscriptions(hub){
   const read=async u=>JSON.parse(await fetchBounded(u,{headers},2097152));
   const lookup=(await read("https://api.kick.com/public/v1/channels?"+slugs.map(s=>"slug="+encodeURIComponent(s)).join("&"))).data;
   if(!Array.isArray(lookup))throw Error("channel lookup");
-  const target=slugs.map(slug=>{const hits=lookup.filter(c=>c.slug?.toLowerCase()===slug),c=hits.length===1?hits[0]:null,id=officialGiftCount(c?.broadcaster_user_id);return id?{slug,id,activeGift:officialGiftCount(c.active_gifted_subscribers_count)}:null;}).filter(Boolean);
+  const target=slugs.map(slug=>{const hits=lookup.filter(c=>c.slug?.toLowerCase()===slug),c=hits.length===1?hits[0]:null,id=officialGiftCount(c?.broadcaster_user_id);return id?{slug,id,startedAt:frame.entries.find(r=>r.id===slug)?.startedAt||"",activeGift:officialGiftCount(c.active_gifted_subscribers_count)}:null;}).filter(Boolean);
   if(!target.length)throw Error("channel identity unavailable");
   await env.KICK_GIFT_DB.prepare(AUTO_GIFT_SCHEMA).run();
+  const chatLimit=adminSecretReady(env.KICK_ADMIN_PASSWORD)?autoChatLimit(env.KICK_AUTO_RANK_CHAT_LIMIT):0;
+  if(chatLimit>0){await env.KICK_GIFT_DB.batch([env.KICK_GIFT_DB.prepare(CHAT_SCHEMA),env.KICK_GIFT_DB.prepare(CHAT_INDEX),env.KICK_GIFT_DB.prepare(CHAT_TIME_INDEX),env.KICK_GIFT_DB.prepare("DELETE FROM kick_chat_receipts WHERE occurred_at < ?").bind(now-600000)]);}
   const existing=giftSubscriptionRows(await read(base));
-  let owned=(await env.KICK_GIFT_DB.prepare("SELECT id,broadcaster_id,kind,created,last_seen FROM kick_auto_gift_subscriptions LIMIT 121").all()).results||[];
+  let owned=(await env.KICK_GIFT_DB.prepare("SELECT id,broadcaster_id,kind,created,last_seen FROM kick_auto_gift_subscriptions LIMIT 181").all()).results||[];
   // Remove abandoned registry entries only after one day without official confirmation. Never issue a DELETE against an unconfirmed ID.
   const listedIds=new Set(existing.map(x=>x.id.toUpperCase())),abandoned=owned.filter(x=>now-x.created>86400000&&!listedIds.has(x.id));
   if(abandoned.length){await env.KICK_GIFT_DB.batch(abandoned.map(o=>env.KICK_GIFT_DB.prepare("DELETE FROM kick_auto_gift_subscriptions WHERE id=?").bind(o.id)));const gone=new Set(abandoned.map(x=>x.id));owned=owned.filter(x=>!gone.has(x.id));}
   const allowed=giftAllowedIds(env);
   // Preserve manual subscriptions, and do not remove any entries on partial snapshots/identity lookup.
   const targetIds=new Set(target.map(t=>t.id));
-  for(const o of owned)if(targetIds.has(o.broadcaster_id))o.last_seen=now;
-  const ids=[...targetIds];if(ids.length)await env.KICK_GIFT_DB.prepare("UPDATE kick_auto_gift_subscriptions SET last_seen=? WHERE broadcaster_id IN ("+ids.map(()=>"?").join(",")+")").bind(now,...ids).run();
-  const plan=giftAutoPlan(target,existing,owned,allowed,attempts,now);
+  const chatIds=target.slice(0,chatLimit).map(t=>t.id),chatSet=new Set(chatIds),ids=[...targetIds];
+  for(const o of owned)if(targetIds.has(o.broadcaster_id)&&(o.kind!=="chat.message.sent"||chatSet.has(o.broadcaster_id)))o.last_seen=now;
+  if(ids.length)await env.KICK_GIFT_DB.prepare("UPDATE kick_auto_gift_subscriptions SET last_seen=? WHERE kind<>? AND broadcaster_id IN ("+ids.map(()=>"?").join(",")+")").bind(now,"chat.message.sent",...ids).run();
+  if(chatIds.length)await env.KICK_GIFT_DB.prepare("UPDATE kick_auto_gift_subscriptions SET last_seen=? WHERE kind=? AND broadcaster_id IN ("+chatIds.map(()=>"?").join(",")+")").bind(now,"chat.message.sent",...chatIds).run();
+  const plan=giftAutoPlan(target,existing,owned,allowed,attempts,now,chatLimit);
   if(target.length!==slugs.length||slugs.length<50)plan.remove=[];
   if(plan.remove.length){
    const deleted=await fetch(base+"?"+plan.remove.map(o=>"id="+encodeURIComponent(o.id)).join("&"),{method:"DELETE",headers,redirect:"manual",signal:AbortSignal.timeout(8000)});if(deleted.status!==204){await deleted.body?.cancel();throw Error("HTTP "+deleted.status);}
@@ -2044,7 +2049,7 @@ async function syncHomeGiftSubscriptions(hub){
   }
   const confirmed=existing.slice(),ownedIds=new Set(owned.map(x=>x.id));let created=0;
   for(const job of plan.add){
-   attempts[job.id]=now;await store.put("homeGiftState",{...state,lastAttempt:now,attempts});
+   for(const kind of job.events)attempts[job.id+":"+kind]=now;await store.put("homeGiftState",{...state,lastAttempt:now,attempts});
    const posted=JSON.parse(await fetchBounded(base,{method:"POST",headers:{...headers,"content-type":"application/json"},body:JSON.stringify({broadcaster_user_id:job.id,method:"webhook",events:job.events.map(name=>({name,version:1}))})},65536));
    for(const p of posted.data||[]){
     const id=String(p.subscription_id||"").toUpperCase();
@@ -2053,9 +2058,9 @@ async function syncHomeGiftSubscriptions(hub){
    }
   }
   // Only official GET-confirmed subscriptions are labelled active. Existing manual IDs are respected.
-  const roster=target.map(t=>({...t,events:AUTO_GIFT_KINDS.filter(kind=>confirmed.some(x=>Number(x.broadcaster_user_id)===t.id&&x.event===kind&&(!allowed.length||allowed.includes(x.id.toUpperCase())||ownedIds.has(x.id.toUpperCase()))))}));
+  const roster=target.map(t=>({...t,events:AUTO_GIFT_KINDS.filter(kind=>confirmed.some(x=>Number(x.broadcaster_user_id)===t.id&&x.event===kind&&(kind==="chat.message.sent"||!allowed.length||allowed.includes(x.id.toUpperCase())||ownedIds.has(x.id.toUpperCase()))))}));
   for(const k of Object.keys(attempts))if(now-attempts[k]>86400000)delete attempts[k];
-  await store.put("homeGiftState",{lastAttempt:now,checkedAt:now,status:"ok",attempts,roster,created,removed:plan.remove.length});
+  await store.put("homeGiftState",{lastAttempt:now,checkedAt:now,status:"ok",attempts,roster,chatLimit,created,removed:plan.remove.length});
   hub.autoGiftCache=null;
  }catch(e){
   const state=await store.get("homeGiftState")||{};
@@ -2065,14 +2070,23 @@ async function syncHomeGiftSubscriptions(hub){
 async function homeGiftData(hub){
  const now=Date.now(),env=hub.env,state=await hub.ctx.storage.get("homeGiftState")||{};
  if(state.status!=="ok"||!Array.isArray(state.roster)||!Number.isFinite(state.checkedAt)||now-state.checkedAt>600000)return {status:"unavailable",checkedAt:now,entries:[],reason:state.status||"pending"};
- if(hub.autoGiftCache&&now-hub.autoGiftCache.checkedAt<20000)return hub.autoGiftCache;
+ if(hub.autoGiftCache&&now-hub.autoGiftCache.checkedAt<8000)return hub.autoGiftCache;
  const roster=state.roster.slice(0,50),ids=roster.map(x=>x.id);
  if(!ids.length)return {status:"unavailable",checkedAt:now,entries:[]};
  try{
   const result=await env.KICK_GIFT_DB.prepare("SELECT broadcaster_id,kind,SUM(amount) AS total FROM kick_gift_events WHERE occurred_at>=? AND occurred_at<=? AND broadcaster_id IN ("+ids.map(()=>"?").join(",")+") GROUP BY broadcaster_id,kind").bind(now-86400000,now,...ids).all();
   const rows=roster.map(t=>{const total=kind=>officialGiftCount((result.results||[]).find(r=>r.broadcaster_id===t.id&&r.kind===kind)?.total);
    return {id:t.slug,checkedAt:now,kicksGift:total("kicks.gifted"),giftedSubscriptionsReceived:total("channel.subscription.gifts"),giftedSubscriptions:t.activeGift,kicksGiftSubscriptionVerified:t.events.includes("kicks.gifted"),giftSubSubscriptionVerified:t.events.includes("channel.subscription.gifts"),kicksGiftStage:t.events.includes("kicks.gifted")?"公式購読確認済み・24時間受信分":"公式自動購読確認待ち",giftedSubscriptionsStage:t.activeGift===null?"公式API未取得":"公式API取得済み"};});
-  return hub.autoGiftCache={status:"ok",checkedAt:now,rosterCheckedAt:state.checkedAt,entries:rows};
+  // Aggregate only received chat events, not an assertion of complete chat coverage.
+  const starts=roster.filter(t=>t.events.includes("chat.message.sent")&&Number.isFinite(Date.parse(t.startedAt))&&Date.parse(t.startedAt)<=now).map(t=>({id:t.id,slug:t.slug,startedAt:t.startedAt,at:Math.max(now-600000,Date.parse(t.startedAt))}));
+  const bySlug=new Map(rows.map(r=>[r.id,r]));
+  for(const t of roster){const row=bySlug.get(t.slug);row.chatSubscriptionVerified=t.events.includes("chat.message.sent");row.webhookChatStage=row.chatSubscriptionVerified?"公式購読確認済み・受信待ち":"公式チャット購読確認待ち";}
+  try{for(let i=0;i<starts.length;i+=40){
+   const batch=starts.slice(i,i+40),query="SELECT broadcaster_id,COUNT(CASE WHEN occurred_at > ? THEN 1 END) AS recent,COUNT(DISTINCT CASE WHEN sender_hash<>'' THEN sender_hash END) AS active,COUNT(*) AS total,MAX(occurred_at) AS latest FROM kick_chat_receipts WHERE occurred_at<=? AND ("+batch.map(()=>"(broadcaster_id=? AND occurred_at>?)").join(" OR ")+") GROUP BY broadcaster_id";
+   const result=await env.KICK_GIFT_DB.prepare(query).bind(now-30000,now,...batch.flatMap(t=>[t.id,t.at])).all();
+   for(const t of batch){const row=bySlug.get(t.slug),x=(result.results||[]).find(r=>Number(r.broadcaster_id)===t.id);row.webhookStartedAt=t.startedAt;if(!x||!officialGiftCount(x.total))continue;row.webhookChatReceived=officialGiftCount(x.recent);row.webhookActiveReceived=officialGiftCount(x.active);row.webhookActiveSeconds=Math.max(1,Math.min(600,Math.floor((now-Date.parse(t.startedAt))/1000)));row.webhookChatSampledAt=new Date(now).toISOString();row.webhookChatStage="公式Webhook受信分・全履歴ではありません";}
+  }}catch{for(const row of rows)if(row.chatSubscriptionVerified)row.webhookChatStage="チャット受信DB集計失敗";}
+  return hub.autoGiftCache={status:"ok",checkedAt:now,rosterCheckedAt:state.checkedAt,chatLimit:state.chatLimit??0,entries:rows};
  }catch{return {status:"unavailable",checkedAt:now,entries:[]};}
 }
 
@@ -2097,7 +2111,7 @@ async function homeThumbnailResponse(request){
 
 async function enhancedHomeRanking(request,ctx){
  if(request.method!=="GET")return json({status:"error"},405);
- const key=new Request(new URL("/__cache/home-ranking-data-r109",request.url));
+ const key=new Request(new URL("/__cache/home-ranking-data-r112",request.url));
  try{const cached=await caches.default.match(key);if(cached)return json(await cached.json());}catch{}
  let result={status:"unavailable",frames:{},checkedAt:Date.now()};
  try{
@@ -2106,7 +2120,7 @@ async function enhancedHomeRanking(request,ctx){
   const reader=response.body.getReader(),decoder=new TextDecoder();let size=0,raw="";
   try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2097152){await reader.cancel();throw Error("home size");}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}
   result=enhancedHomeFrames(JSON.parse(raw))||result;
-  if(result.frames?.kick){try{const ns=ctx.exports.RankingLiveHub,g=await (await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/home-gift-data")).json();if(g.status==="ok"){const map=new Map(g.entries.map(r=>[r.id,r]));for(const row of result.frames.kick.entries){const v=map.get(row.id);if(!v)continue;for(const k of ["kicksGift","giftedSubscriptions","giftedSubscriptionsReceived","kicksGiftSubscriptionVerified","kicksGiftStage","giftedSubscriptionsStage"])if(v[k]!=null)row[k]=v[k];}}}catch{}}
+  if(result.frames?.kick){try{const ns=ctx.exports.RankingLiveHub,g=await (await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/home-gift-data")).json();if(g.status==="ok"){const map=new Map(g.entries.map(r=>[r.id,r]));for(const row of result.frames.kick.entries){const v=map.get(row.id);if(!v)continue;for(const k of ["kicksGift","giftedSubscriptions","giftedSubscriptionsReceived","kicksGiftSubscriptionVerified","kicksGiftStage","giftedSubscriptionsStage"])if(v[k]!=null)row[k]=v[k];if(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(v.webhookStartedAt)){for(const k of ["chatSubscriptionVerified","webhookChatReceived","webhookActiveReceived","webhookActiveSeconds","webhookChatSampledAt","webhookChatStage"])if(v[k]!=null)row[k]=v[k];}}}}catch{}}
  }catch{}
  try{await caches.default.put(key,json(result,200,"public, max-age=8"));}catch{}
  return json(result);
@@ -2126,7 +2140,7 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request,ctx);
  if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
  if(url.pathname==="/home-ranking")return request.method==="GET"||request.method==="HEAD"?new Response(null,{status:302,headers:{location:"/api/ranking-page","cache-control":"no-store"}}):json({status:"error"},405);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r111",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r112",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}
