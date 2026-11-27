@@ -25,5 +25,10 @@
         "RankingLiveHub"
       ]
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "*/3 * * * *"
+    ]
+  }
 }
