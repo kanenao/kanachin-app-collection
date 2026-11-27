@@ -795,7 +795,7 @@ function setEnhancedMode(on,reason){
   enhancedMode=on;enhancedThumbs.clear();nicoThumbPrune(new Set());kickThumbPrune(new Set());
   for(const panel of rankPanels){panel.querySelector(".rank-list").replaceChildren();panel.querySelector(".rank-status").hidden=false;panel.querySelector(".rank-status").textContent="切替中…";}
   if(on){clearTimeout(liveRetry);liveRetry=null;++liveGeneration;try{liveSocket?.close();}catch{}liveSocket=null;autoUpdating=false;autoPaused=false;}
-  else{enhancedFrames.clear();liveAttempts=0;autoPaused=false;autoUpdating=false;autoNextAt=Date.now()+AUTO_RANK_INTERVAL;for(const panel of rankPanels){const data=rankPrevious.get(panel.dataset.platform);if(data)renderRanking(panel,data,true);}connectLive();}
+  else{enhancedFrames.clear();liveAttempts=0;autoPaused=false;autoUpdating=false;autoNextAt=Date.now()+1000;rankingSnapshotTried=false;for(const panel of rankPanels){const type=panel.dataset.platform,data=rankPrevious.get(type);if(data&&Date.now()-Date.parse(data.fetchedAt)<=900000)renderRanking(panel,data,true);else{rankPrevious.delete(type);liveBaselines.delete(type);panel.querySelector(".rank-status").textContent="通常ランキング取得中…";}}connectLive();}
  }
  label.textContent=on?"強化モード｜自宅サーバー接続中":"通常モード｜Cloudflare";
  detail.textContent=on?"自宅PCの取得済みデータを10秒ごとに反映。停止時は通常モードへ自動切替。":reason||"従来のランキングを表示中。自宅サーバー復旧時に自動切替します。";
@@ -834,7 +834,7 @@ checkRankingHealth();connectLive();void checkEnhanced();showAutoCountdown();setI
    const data=await response.json();
    if(!["online","offline"].includes(data.status)||!Number.isFinite(data.checkedAt))throw Error("invalid status");
    if(data.status==="online"){box.hidden=true;}
-   else{title.textContent="メンテナンス中｜自宅サーバー版ランキング";message.textContent="自宅サーバー版は現在一時停止中、または通信できない状態です。従来のCloudflare版ランキングは引き続きご利用いただけます。";time.textContent="最終確認："+new Date(data.checkedAt).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST ・ 自動で再確認します";box.hidden=false;}
+   else{title.textContent="メンテナンス中｜自宅サーバー版ランキング";message.textContent="自宅サーバー版は現在一時停止中、または通信できない状態です。通常モードのCloudflareランキングを表示します。";time.textContent="最終確認："+new Date(data.checkedAt).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST ・ 自動で再確認します";box.hidden=false;}
   }catch{
    title.textContent="自宅サーバー版の接続状況を確認できません";message.textContent="従来のCloudflare版ランキングをご利用ください。自動で再確認します。";time.textContent="";box.hidden=false;
   }finally{busy=false;if(!document.hidden)timer=setTimeout(check,30000);}
