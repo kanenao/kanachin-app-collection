@@ -1820,7 +1820,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r102</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r103</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1878,7 +1878,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r102"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r103"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1889,9 +1889,10 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r102",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r103",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
+ if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}
  if(url.pathname==="/api/rankings-live"){
   if(request.method!=="GET"||request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return json({status:"error",message:"WebSocket接続のみ対応"},426);
   if(request.headers.get("Origin")!==url.origin)return json({status:"error",message:"同一サイトから接続してください"},403);
@@ -1955,12 +1956,12 @@ export class RankingFeed extends WorkerEntrypoint{
 }
 async function liveReadFrames(response,apply){
  if(!response.ok)throw Error("HTTP "+response.status);
- if(!response.headers.get("content-type")?.includes("application/x-ndjson")||!response.body){apply(await response.json());return;}
+ if(!response.headers.get("content-type")?.includes("application/x-ndjson")||!response.body){await apply(await response.json());return;}
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer="";
- const line=text=>{if(text.trim())apply(JSON.parse(text));};
+ const line=async text=>{if(text.trim())await apply(JSON.parse(text));};
  try{while(true){const {done,value}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});if(buffer.length>1048576)throw Error("response limit");
-  let i;while((i=buffer.indexOf("\n"))>=0){line(buffer.slice(0,i));buffer=buffer.slice(i+1);}
- }buffer+=decoder.decode();line(buffer);
+  let i;while((i=buffer.indexOf("\n"))>=0){await line(buffer.slice(0,i));buffer=buffer.slice(i+1);}
+ }buffer+=decoder.decode();await line(buffer);
  }finally{reader.releaseLock();}
 }
 const overallWeights={nico:[["active10m",30],["momentum",20],["visitors",15],["comments",15],["advertising",10],["gift",10]],kick:[["viewers",25],["activeUsers",25],["receivedComments",20],["viewerRate",15],["kicksGift",5],["giftedSubscriptions",5],["giftedSubscriptionsReceived",5]]};
@@ -2032,9 +2033,29 @@ function rankingSnapshot(frame,kind,stats,now=Date.now()){
  });
  return {...frame,entries,stale:age>90000||!!frame.stale,fromSnapshot:true};
 }
+const RANK_NOTICE_KEYS=["budget","nico","kick","nico-stats","shared"];
+function rankingBudgetNotice(b,idle){
+ if(!b.allowed)return {code:"quota",text:"無料運用上限に達したため、ニコ生・Kickのランキング取得を休止しています。",nextAt:Date.parse(b.day+"T00:00:00Z")+86400000+1000};
+ if(idle&&!idleBudgetAllowed(b))return {code:"idle-quota",text:"無料運用上限を守るため、閲覧前の自動取得を休止しています。ランキング閲覧中の更新は利用可能です。",nextAt:Date.parse(b.day+"T00:00:00Z")+86400000+1000};
+ return null;
+}
+function rankingFrameNotice(kind,frame){
+ if(frame?.status!=="ok"||frame.stale)return {code:"source",text:(kind==="nico"?"ニコニコ生放送":"Kick")+"の外部取得先から最新ランキングを取得できません。再取得を試みています。"};
+ if(kind==="kick"&&frame.notice)return {code:"fallback",text:"Kick公式APIから取得できないため、公開ランキングの参考データを表示しています。"};
+ return null;
+}
+function nextRankingNotice(old,key,info,now){
+ if(!info)return old?.active?{key,active:false,at:now}:null;
+ if(old?.active&&old.code===info.code&&old.text===info.text&&old.nextAt===(info.nextAt??null))return null;
+ return {key,active:true,code:info.code,text:info.text,nextAt:info.nextAt??null,at:now};
+}
 export class RankingLiveHub extends DurableObject{
  constructor(ctx,env){super(ctx,env);this.running=false;this.latest=new Map();this.lastSent=new Map();this.stats=new Map();this.trends=new Map();}
- clients(){return this.ctx.getWebSockets().filter(ws=>ws.readyState===1);}
+ clients(){return this.ctx.getWebSockets().filter(ws=>ws.readyState===1&&!this.ctx.getTags(ws).includes("notices"));}
+ noticeClients(){return this.ctx.getWebSockets().filter(ws=>ws.readyState===1);}
+ async notices(){const result=await this.ctx.storage.get(RANK_NOTICE_KEYS.map(k=>"notice:"+k));return RANK_NOTICE_KEYS.map(k=>result.get("notice:"+k)).filter(x=>x?.active);}
+ async setNotice(key,info){const name="notice:"+key,old=await this.ctx.storage.get(name),next=nextRankingNotice(old,key,info,Date.now());if(!next)return;await this.ctx.storage.put(name,next);for(const ws of this.noticeClients())this.send(ws,{kind:"rank-notice",data:next});}
+ async updateBudgetNotice(b,idle){await this.setNotice("budget",rankingBudgetNotice(b,idle));}
  send(ws,frame){try{ws.send(JSON.stringify(frame));}catch{try{ws.close(1011,"send failed");}catch{}}}
  broadcast(kind,data){
   const frame={kind,data};
@@ -2050,11 +2071,15 @@ export class RankingLiveHub extends DurableObject{
  }
  async fetch(request){
   const internal=new URL(request.url);
-  if(internal.hostname==="internal"&&["/rankings-warm","/nico-warm"].includes(internal.pathname)&&request.method==="POST"){const now=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),now),last=await this.ctx.storage.get("lastStart")||0;if(!this.running){if(this.clients().length&&b.allowed)await this.schedule(nextLiveStart(last,now));else if(idleBudgetAllowed(b))await this.schedule(idleNextStart(last,now));}return new Response(null,{status:204});}
+  if(internal.hostname==="internal"&&["/rankings-warm","/nico-warm"].includes(internal.pathname)&&request.method==="POST"){const now=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),now),last=await this.ctx.storage.get("lastStart")||0;if(!this.running){await this.updateBudgetNotice(b,!this.clients().length);if(this.clients().length&&b.allowed)await this.schedule(nextLiveStart(last,now));else if(idleBudgetAllowed(b))await this.schedule(idleNextStart(last,now));}return new Response(null,{status:204});}
   if(internal.hostname==="internal"&&["/nico-snapshot","/rankings-snapshot"].includes(internal.pathname)&&request.method==="GET"){const saved=await this.ctx.storage.get("snapshot"),stats=this.stats.size?[...this.stats.values()]:saved?.stats||[],now=Date.now();const nico=rankingSnapshot(this.latest.get("nico")||saved?.nico,"nico",stats,now),kick=rankingSnapshot(this.latest.get("kick")||saved?.kick,"kick",[],now);for(const [kind,frame] of [["nico",nico],["kick",kick]])if(frame)frame.sharedTrend=this.trends.get(kind)||saved?.trends?.[kind]||null;return json(internal.pathname==="/nico-snapshot"?(nico||{status:"pending",entries:[]}):{status:nico||kick?"ok":"pending",nico,kick,checkedAt:now},200,"no-store");}
+  if(internal.hostname==="internal"&&internal.pathname==="/ranking-notices"&&request.method==="GET"){const b=liveBudget(await this.ctx.storage.get("budget"),Date.now());if(!this.running)await this.updateBudgetNotice(b,!this.clients().length);return json({status:"ok",notices:await this.notices()},200,"no-store");}
   if(request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return new Response("WebSocket required",{status:426});
-  if(this.clients().length>=200)return new Response("接続上限",{status:503});
-  const pair=new WebSocketPair(),client=pair[0],server=pair[1];this.ctx.acceptWebSocket(server);
+  if(this.noticeClients().length>=200)return new Response("接続上限",{status:503});
+  const pair=new WebSocketPair(),client=pair[0],server=pair[1],noticeOnly=internal.searchParams.get("notices")==="1";this.ctx.acceptWebSocket(server,noticeOnly?["notices"]:["rankings"]);
+  if(!this.running)await this.updateBudgetNotice(liveBudget(await this.ctx.storage.get("budget"),Date.now()),!this.clients().length);
+  this.send(server,{kind:"rank-notices",data:{notices:await this.notices()}});
+  if(noticeOnly)return new Response(null,{status:101,webSocket:client});
   const saved=await this.ctx.storage.get("snapshot");
   const stats=this.stats.size?[...this.stats.values()]:saved?.stats||[];
   for(const kind of ["nico","kick"]){
@@ -2071,7 +2096,7 @@ export class RankingLiveHub extends DurableObject{
  }
  async webSocketMessage(ws,message){
   // Only a bounded refresh hint is accepted; clients cannot publish statistics.
-  if(message!=="refresh")return;
+  if(message!=="refresh"||this.ctx.getTags(ws).includes("notices"))return;
   const now=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),now);
   if(!b.allowed||this.running)return;
   const last=await this.ctx.storage.get("lastStart")||0;
@@ -2085,6 +2110,7 @@ export class RankingLiveHub extends DurableObject{
   this.running=true;
   const start=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),start);
   const last=await this.ctx.storage.get("lastStart")||0;
+  await this.updateBudgetNotice(b,idle);
   if(idle&&!rankingsIdleAllowed(b,last,start)){this.running=false;return;}
   if(b.allowed&&start<last+LIVE_INTERVAL){this.running=false;await this.schedule(nextLiveStart(last,start));return;}
   if(!b.allowed){
@@ -2103,32 +2129,39 @@ export class RankingLiveHub extends DurableObject{
    for(const kind of ["nico","kick"])if(!this.trends.has(kind)&&saved.trends?.[kind])this.trends.set(kind,saved.trends[kind]);
    this.broadcast("state",{message:"共有データ取得中",paused:false,updating:true,nextAt:null});
    const feed=this.ctx.exports.RankingFeed;
-   const receive=(kind,frame)=>{
+   const receive=async(kind,frame)=>{
+    const info=rankingFrameNotice(kind,frame);if(info||kind==="nico"||frame.done===true)await this.setNotice(kind,info);
     if(frame.status==="ok"&&Array.isArray(frame.entries)&&Number.isFinite(Date.parse(frame.fetchedAt))){
      const old=this.latest.get(kind);if(old&&Date.parse(old.fetchedAt)>Date.parse(frame.fetchedAt))return;
      this.latest.set(kind,frame);this.broadcast(kind,{...frame,sharedTrend:this.trends.get(kind)||null});
     }else this.broadcast("rank-error",{platform:kind,message:frame.message||(kind==="nico"?"ニコ生":"Kick")+"取得再試行待ち"});
    };
    const nico=async()=>{
-    try{await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));}catch(e){const old=this.latest.get("nico");if(old?.entries?.length&&Date.now()-Date.parse(old.fetchedAt)<=900000)this.broadcast("nico",{...old,stale:true});this.broadcast("rank-error",{platform:"nico",message:"ニコ生一覧取得失敗: "+diagnostic(e)});return;}
+    try{await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));}catch(e){await this.setNotice("nico",rankingFrameNotice("nico",null));const old=this.latest.get("nico");if(old?.entries?.length&&Date.now()-Date.parse(old.fetchedAt)<=900000)this.broadcast("nico",{...old,stale:true});this.broadcast("rank-error",{platform:"nico",message:"ニコ生一覧取得失敗: "+diagnostic(e)});return;}
     const ids=new Set((this.latest.get("nico")?.entries||[]).map(r=>r.id));
     for(const id of this.stats.keys())if(!ids.has(id))this.stats.delete(id);
-    await liveReadFrames(await feed.fetch(new Request("https://internal/nico-stats",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({entries:this.latest.get("nico")?.entries||[],fetchedAt:this.latest.get("nico")?.fetchedAt,previousStats:[...this.stats.values()]})})),frame=>{
+    await liveReadFrames(await feed.fetch(new Request("https://internal/nico-stats",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({entries:this.latest.get("nico")?.entries||[],fetchedAt:this.latest.get("nico")?.fetchedAt,previousStats:[...this.stats.values()]})})),async frame=>{
+     if(frame.status==="error"){await this.setNotice("nico-stats",{code:"stats",text:"ニコ生の追加統計の通信に失敗しました。再取得を試みています。"});return;}
      if(frame.status!=="ok"||!Array.isArray(frame.entries))return;
+     if(frame.done===true)await this.setNotice("nico-stats",null);
      const rows=frame.entries.filter(row=>ids.has(row.id)&&Number.isFinite(row.checkedAt));
      for(const row of rows){const old=this.stats.get(row.id);if(!old||row.checkedAt>=old.checkedAt){const merged=retainNicoStats(old,row);this.stats.set(row.id,merged);}}
      if(rows.length)this.broadcast("nico-stats",{status:"ok",entries:rows.map(row=>this.stats.get(row.id)||row)});
     });
    };
-   const kick=async()=>{try{await liveReadFrames(await feed.fetch("https://internal/kick"),frame=>receive("kick",frame));}catch(e){const old=rankingSnapshot(this.latest.get("kick"),"kick",[]);if(old)this.broadcast("kick",{...old,stale:true});this.broadcast("rank-error",{platform:"kick",message:"Kick一覧取得失敗: "+diagnostic(e)});}};
+   const kick=async()=>{try{await liveReadFrames(await feed.fetch("https://internal/kick"),frame=>receive("kick",frame));}catch(e){await this.setNotice("kick",rankingFrameNotice("kick",null));const old=rankingSnapshot(this.latest.get("kick"),"kick",[]);if(old)this.broadcast("kick",{...old,stale:true});this.broadcast("rank-error",{platform:"kick",message:"Kick一覧取得失敗: "+diagnostic(e)});}};
    const results=await Promise.allSettled([nico(),kick()]);
+   if(results[0].status==="rejected")await this.setNotice("nico-stats",{code:"stats",text:"ニコ生の追加統計の通信に失敗しました。再取得を試みています。"});
+   if(results[1].status==="rejected")await this.setNotice("kick",rankingFrameNotice("kick",null));
    for(const kind of ["nico","kick"]){const frame=this.latest.get(kind);if(!frame||frame.stale||kind==="kick"&&frame.done!==true)continue;const old=this.trends.get(kind);if(Date.parse(old?.current?.fetchedAt)>=Date.parse(frame.fetchedAt))continue;const trend=collectSharedTrend(old,frame,kind,kind==="nico"?[...this.stats.values()]:[],Date.now());this.trends.set(kind,trend);this.broadcast("rank-trend",{platform:kind,trend});}
    await this.ctx.storage.put("snapshot",{nico:this.latest.get("nico")||null,kick:this.latest.get("kick")||null,stats:[...this.stats.values()].filter(r=>Date.now()-r.checkedAt<=86400000),trends:Object.fromEntries(this.trends)});
+   await this.setNotice("shared",null);
    this.broadcast("state",{message:results.some(r=>r.status==="rejected")?"一部取得に失敗・次回再試行":"60秒自動更新・共有接続中",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});
-  }catch{this.broadcast("state",{message:"共有取得エラー・再試行待ち",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});}
+  }catch{try{await this.setNotice("shared",{code:"shared",text:"ランキング共有取得に障害が発生しました。再取得を試みています。"});}catch{}
+   this.broadcast("state",{message:"共有取得エラー・再試行待ち",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});}
   finally{
    const elapsed=Math.max(0,Date.now()-start);
-   try{await this.ctx.storage.put("budget",{day:reservation.day,cycles:reservation.cycles,workMs:b.workMs+elapsed});}catch{}
+   try{const actual={day:reservation.day,cycles:reservation.cycles,workMs:b.workMs+elapsed};await this.ctx.storage.put("budget",actual);await this.updateBudgetNotice(liveBudget(actual,Date.now()),!this.clients().length);}catch{}
    this.running=false;
    if(this.clients().length)await this.schedule(nextLiveStart(start,Date.now()));
   }
