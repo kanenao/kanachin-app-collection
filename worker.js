@@ -1185,6 +1185,7 @@ async function registerKickRankingEvents(request,env,origin){
 async function listKickRegisteredChannels(env,readApi,now=Date.now()){
  const rows=giftSubscriptionRows(await readApi("https://api.kick.com/public/v1/events/subscriptions"));
  const allowed=new Set(giftAllowedIds(env)),restricted=!!String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim(),groups=new Map(),seen=new Set();
+ try{const auto=(await env.KICK_GIFT_DB?.prepare("SELECT id FROM kick_auto_gift_subscriptions LIMIT 121").all())?.results||[];for(const row of auto)allowed.add(row.id);}catch{}
  for(const r of rows){
   const id=officialGiftCount(r.broadcaster_user_id),sub=r.id.toUpperCase();
   if(seen.has(sub))continue;seen.add(sub);
@@ -2026,7 +2027,10 @@ async function syncHomeGiftSubscriptions(hub){
   if(!target.length)throw Error("channel identity unavailable");
   await env.KICK_GIFT_DB.prepare(AUTO_GIFT_SCHEMA).run();
   const existing=giftSubscriptionRows(await read(base));
-  const owned=(await env.KICK_GIFT_DB.prepare("SELECT id,broadcaster_id,kind,created,last_seen FROM kick_auto_gift_subscriptions LIMIT 121").all()).results||[];
+  let owned=(await env.KICK_GIFT_DB.prepare("SELECT id,broadcaster_id,kind,created,last_seen FROM kick_auto_gift_subscriptions LIMIT 121").all()).results||[];
+  // Remove abandoned registry entries only after one day without official confirmation. Never issue a DELETE against an unconfirmed ID.
+  const listedIds=new Set(existing.map(x=>x.id.toUpperCase())),abandoned=owned.filter(x=>now-x.created>86400000&&!listedIds.has(x.id));
+  if(abandoned.length){await env.KICK_GIFT_DB.batch(abandoned.map(o=>env.KICK_GIFT_DB.prepare("DELETE FROM kick_auto_gift_subscriptions WHERE id=?").bind(o.id)));const gone=new Set(abandoned.map(x=>x.id));owned=owned.filter(x=>!gone.has(x.id));}
   const allowed=giftAllowedIds(env);
   // Preserve manual subscriptions, and do not remove any entries on partial snapshots/identity lookup.
   const targetIds=new Set(target.map(t=>t.id));
@@ -2035,7 +2039,7 @@ async function syncHomeGiftSubscriptions(hub){
   const plan=giftAutoPlan(target,existing,owned,allowed,attempts,now);
   if(target.length!==slugs.length||slugs.length<50)plan.remove=[];
   if(plan.remove.length){
-   await fetchBounded(base+"?"+plan.remove.map(o=>"id="+encodeURIComponent(o.id)).join("&"),{method:"DELETE",headers},65536);
+   const deleted=await fetch(base+"?"+plan.remove.map(o=>"id="+encodeURIComponent(o.id)).join("&"),{method:"DELETE",headers,redirect:"manual",signal:AbortSignal.timeout(8000)});if(deleted.status!==204){await deleted.body?.cancel();throw Error("HTTP "+deleted.status);}
    await env.KICK_GIFT_DB.batch(plan.remove.map(o=>env.KICK_GIFT_DB.prepare("DELETE FROM kick_auto_gift_subscriptions WHERE id=?").bind(o.id)));
   }
   const confirmed=existing.slice(),ownedIds=new Set(owned.map(x=>x.id));let created=0;
