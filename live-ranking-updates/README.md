@@ -18,7 +18,7 @@ schema: 1、channel: stable、version: X.Y.Z、bundle: vX.Y.Z.json、sha256: 64�
 
 更新は固定GitHub HTTPS配布元を信頼し、ハッシュ・構文・模擬テストを照合して別ディレクトリへ展開。起動確認に失敗すると直前版へ戻す。実環境の全機能を保証する仕組みではなく、署名による独立した真正性確認は未実装。更新エンジンの変更は別途導入が必要。公開元アカウントの保護を重視する。
 
-現在のmanifestはv0.4.10です。
+現在のmanifestはv0.5.0です。
 
 ## v0.4.8（安定版自動更新対象）
 
@@ -41,3 +41,13 @@ schema: 1、channel: stable、version: X.Y.Z、bundle: vX.Y.Z.json、sha256: 64�
 - 既存公式Webhook署名検証、購読ID照合、重複排除を維持。本文・ユーザー名を保存せず、受信イベントID・時刻・配信者ID・投稿者の鍵付きハッシュのみ10分集計用に保持。取得済みの受信コメント30秒、投稿者最大10分の重複除外を独立表示。全履歴を取得した値とは区別し、採点には追加しない。番組開始時刻が不明または一致しないとき、受信分の値は混ぜない。Cloudflare集計キャッシュ8秒、自宅版正常時10秒／失敗時60秒確認。未受信・未確認を0とみなさない。/health の kickAutoGift.chatConfirmed で公式購読確認数を表示。
 - Webhookはコメント1件につきWorkerへの受信リクエストが発生するため、10人でも無料枠の消費を保証できない。利用状況を確認し、必要なら上限を下げる。自動購読の上限を変えるにはCloudflare環境変数を設定してデプロイ。既存のKick公式API認証・D1・Webhook有効設定が前提。実配信での新規購読・受信、Windows実機、自宅PCでの自動更新および本番デプロイは未確認。
 - 自動購読計画10項目、Cloudflare集計モック10項目、既存6テストスクリプトと自宅版追加10項目、構文検査、ローカルHTTP health/dashboard/compact 起動確認成功。GitHub配布blobとローカル検証ファイルが一致。安定版manifestをv0.4.10に更新。v0.4.7の元ファイルを保持する差分配布。
+
+## v0.5.0 / Cloudflare r113 — 自宅直接Webhook受信
+
+- Node.js 22.13以降の node:sqlite を利用。従来の安定版自動更新経由で導入する。v0.4.7の元ファイルは維持する。直接受信は明示的に有効化するまで従来方式のまま。
+- Kick開発者設定のWebhook URL: https://kane-nao.tail7d733c.ts.net/api/kick-webhook 。自宅用の別Kickアプリを推奨（既存Cloudflareアプリの受信を壊さないため）。Windowsユーザー環境変数 KICK_CLIENT_ID、KICK_CLIENT_SECRET、KICK_HOME_WEBHOOK=1 を設定してサーバーを再起動。秘密情報はGitHub・チャットに公開しない。既存アプリを共用する場合はCloudflare側の自動購読を停止してからURLを変更する。
+- 公式公開鍵でRSA-SHA256検証、公式購読ID・配信者ID・イベント種別・タイムスタンプ照合、本文上限256KiB、同時受信32件、イベントID重複排除。公開Webhook POSTのみ、遠隔管理APIは追加しない。
+- ランキング最大50人のチャット・KICKs・ギフトサブスクを30秒間隔で最大5人ずつ自動購読。既存購読を照合、手動登録は解除しない。完全な50人の一覧が照合できた場合、15分以上圏外の自宅自動登録分のみ解除。API異常時5分休止。150件を目標、入れ替え分含め自動登録上限180件。
+- SQLiteに必要最小限の受信情報を保存。本文・ユーザー名・生の投稿者IDは保存せず、投稿者はローカル鍵によるHMAC。チャット10分・ギフト24時間の受信分を集計し、イベント受信後の更新を1秒にまとめる。未受信を0にしない。既存の全履歴取得値とは区別し、採点配分は変更しない。
+- /health の kickHomeWebhook.enabled、configured、ready、channels、chatConfirmed、received、lastReceivedAt を確認。readyは公開鍵・購読一覧確認であって実際の配信イベント到着を保証しない。Cloudflare r113は直接受信有効時に自宅版の集計を優先し、重複自動購読を休止する。既存Cloudflare購読は勝手に解除しない。無料枠節約には、動作確認後に旧アプリの不要なチャット購読を整理する必要がある。自宅停止中は通常ランキングへ戻るが自宅Webhookは受信できない。
+- 自動更新エンジンの既存6テストスクリプト、模擬公式API・RSA署名・SQLite永続化を含む追加25項目、ローカルHTTP health/dashboard/compact・無効時Webhook GET/POST、Cloudflareモード判定5項目と構文検査成功。公開blobがローカル検証済みバンドルと一致。実際のKick認証・購読・Webhookの到達・Windows実機・本番Cloudflareデプロイは未確認。
