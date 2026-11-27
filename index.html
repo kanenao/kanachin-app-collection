@@ -39,6 +39,7 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
  .rank-metrics .rank-overall{grid-column:1/-1;background:#e8f0fc;border:1px solid #c9dbf2;display:flex;align-items:center;justify-content:space-between;padding:6px 9px}.rank-metrics .rank-overall dd{font-size:17px;color:#214b8a}.rank-panel[data-platform="kick"] .rank-overall{background:#e7f5eb;border-color:#c0e3c9}.rank-panel[data-platform="kick"] .rank-overall dd{color:#226439}
  .rank-sample-age{font-size:10px;font-weight:400;color:var(--muted);margin-left:3px;white-space:nowrap}
 .ranking-gateway{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin:24px 0;background:white;border:1px solid var(--line);border-radius:14px;padding:22px;border-left:4px solid var(--accent)}.ranking-gateway h2{margin:4px 0}.ranking-gateway p{margin:5px 0;color:var(--muted);font-size:13px;max-width:700px}.ranking-entry{display:inline-flex;align-items:center;gap:12px;background:var(--accent);color:white;font-weight:700;text-decoration:none;border-radius:8px;padding:11px 18px;white-space:nowrap}.ranking-entry:hover{background:#13478f}
+.rank-emergency{margin:12px 0;padding:14px 16px;border:2px solid #bb2525;background:#fff2f2;color:#822020;border-radius:10px;text-align:left;grid-column:1/-1}.rank-emergency[hidden]{display:none!important}.rank-emergency-title{display:block;font-size:16px;font-weight:800}.rank-emergency-list{margin:6px 0 0;padding-left:20px}.rank-emergency-list li+li{margin-top:7px}.rank-emergency-list small{display:block;font-size:12px;color:#694444}.rank-emergency-list strong{font-size:14px}
 </style>
 </head>
 <body>
@@ -55,10 +56,10 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <article class="app " data-repo="kananeo-nico-live-stream"><div class="app-head"><div class="logo" aria-hidden="true">S</div><div><div class="category">ニコニコ生放送 / 配信管理</div><h3>kananeo nico live stream</h3></div></div><p class="desc">放送枠管理、コメント管理、動画リクエスト、配信支援。</p><div class="buttons"><a class="primary" href="https://github.com/kanenao/kananeo-nico-live-stream/releases">ダウンロード</a><a href="https://github.com/kanenao/kananeo-nico-live-stream">詳細・GitHub</a></div><dl class="versions"><div class="version-row"><dt>正規版</dt><dd data-channel="stable">確認中</dd></div><div class="version-row"><dt>β版</dt><dd data-channel="beta">確認中</dd></div><div class="version-row" hidden><dt>α版</dt><dd data-channel="preview"></dd></div></dl></article>
 </div><p id="empty" hidden>該当するアプリがありません。</p></section>
 
-<section class="ranking-gateway" id="rankings" aria-labelledby="ranking-gateway-title"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-gateway-title">LIVE配信ランキング</h2><p>ニコニコ生放送とKickの総合勢いランキング。視聴者数・コメント・アクティブ人数・ギフトなどをまとめて確認できます。</p></div><a class="ranking-entry" href="/api/ranking-page">ランキングを見る <span aria-hidden="true">→</span></a></section>
+<section class="ranking-gateway" id="rankings" aria-labelledby="ranking-gateway-title"><div><span class="rank-eyebrow">LIVE / TOP 10</span><h2 id="ranking-gateway-title">LIVE配信ランキング</h2><p>ニコニコ生放送とKickの総合勢いランキング。視聴者数・コメント・アクティブ人数・ギフトなどをまとめて確認できます。</p></div><a class="ranking-entry" href="/api/ranking-page">ランキングを見る <span aria-hidden="true">→</span></a><aside id="rank-emergency" class="rank-emergency" role="alert" aria-live="assertive" hidden><strong class="rank-emergency-title">緊急お知らせ｜ランキング取得状況</strong><ul class="rank-emergency-list"></ul></aside></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r102 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.27-r103 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -118,6 +119,37 @@ document.querySelector("#search").addEventListener("input",e=>{const q=e.target.
 refresh.addEventListener("click",()=>load(true));load();
 setInterval(()=>{if(!document.hidden)load();},TTL);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-lastAttempt>=TTL)load();});
+
+const rankNoticeMap=new Map();let rankNoticeUnavailable=false;
+function renderRankingNotices(){
+ const root=document.getElementById("rank-emergency");if(!root)return;const list=root.querySelector(".rank-emergency-list");list.replaceChildren();
+ for(const item of rankNoticeMap.values()){const li=document.createElement("li"),msg=document.createElement("strong");msg.textContent=item.text;li.append(msg);const meta=document.createElement("small");meta.textContent="検知 "+new Date(item.at).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+(Number.isFinite(item.nextAt)?" ／ 再開予定（最短） "+new Date(item.nextAt).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"}):" ／ 復旧次第自動解除");li.append(meta);list.append(li);}
+ if(rankNoticeUnavailable){const li=document.createElement("li");li.textContent="緊急お知らせの接続状態を確認できません。再確認中です。";list.append(li);}
+ root.hidden=!list.childElementCount;
+}
+function applyRankingNoticeFrame(frame){
+ if(frame.kind==="rank-notices"){if(!Array.isArray(frame.data?.notices))return;rankNoticeMap.clear();for(const item of frame.data.notices)if(item?.active&&typeof item.key==="string"&&typeof item.text==="string"&&Number.isFinite(item.at))rankNoticeMap.set(item.key,item);rankNoticeUnavailable=false;renderRankingNotices();}
+ else if(frame.kind==="rank-notice"){const item=frame.data;if(!item||typeof item.key!=="string")return;if(item.active&&typeof item.text==="string"&&Number.isFinite(item.at))rankNoticeMap.set(item.key,item);else if(item.active===false)rankNoticeMap.delete(item.key);rankNoticeUnavailable=false;renderRankingNotices();}
+}
+let rankNoticeBusy=false;
+async function pollRankingNotices(){
+ if(document.hidden||rankNoticeBusy)return;rankNoticeBusy=true;
+ try{const res=await fetch("/api/ranking-notices",{cache:"no-store",signal:AbortSignal.timeout(8000)});if(!res.ok)throw Error("status");const data=await res.json();if(data.status!=="ok"||!Array.isArray(data.notices))throw Error("format");applyRankingNoticeFrame({kind:"rank-notices",data});}
+ catch{rankNoticeUnavailable=true;renderRankingNotices();}finally{rankNoticeBusy=false;}
+}
+let rankNoticeSocket=null,rankNoticeRetry=null;
+function connectRankingNoticeSocket(){
+ if(document.hidden||rankNoticeSocket?.readyState===WebSocket.OPEN||rankNoticeSocket?.readyState===WebSocket.CONNECTING)return;
+ clearTimeout(rankNoticeRetry);
+ try{const url=new URL("/api/rankings-live?notices=1",location.href);url.protocol=location.protocol==="https:"?"wss:":"ws:";const ws=new WebSocket(url);rankNoticeSocket=ws;
+ ws.addEventListener("message",e=>{if(rankNoticeSocket!==ws||typeof e.data!=="string"||e.data.length>65536)return;try{applyRankingNoticeFrame(JSON.parse(e.data));}catch{}});
+ ws.addEventListener("close",()=>{if(rankNoticeSocket!==ws)return;rankNoticeSocket=null;void pollRankingNotices();if(!document.hidden)rankNoticeRetry=setTimeout(connectRankingNoticeSocket,30000);});
+ ws.addEventListener("error",()=>{try{ws.close();}catch{}});
+ }catch{void pollRankingNotices();rankNoticeRetry=setTimeout(connectRankingNoticeSocket,30000);}
+}
+void pollRankingNotices();connectRankingNoticeSocket();
+setInterval(()=>{if(rankNoticeSocket?.readyState!==WebSocket.OPEN)void pollRankingNotices();},30000);
+document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(rankNoticeRetry);const ws=rankNoticeSocket;rankNoticeSocket=null;try{ws?.close();}catch{}}else{void pollRankingNotices();connectRankingNoticeSocket();}});
 
 </script>
 </body></html>
