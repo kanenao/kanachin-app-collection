@@ -779,14 +779,14 @@ function enhancedThumbnail(row,type){
  const key=type+":"+row.id,identity=row.startedAt||"",direct=[...new Set([row.thumbnail,...(row.thumbnailCandidates||[])].map(x=>enhancedImage(x,type)).filter(Boolean))];
  let state=enhancedThumbs.get(key);
  if(!state||state.identity&&identity&&state.identity!==identity){
-  const box=element("div","rank-thumbbox"),img=element("img"),msg=element("span","","画像未取得");img.alt="";img.loading="lazy";img.referrerPolicy="no-referrer";img.hidden=true;box.append(msg,img);state={box,img,msg,identity,index:0,urls:[],slot:-1};enhancedThumbs.set(key,state);
-  img.addEventListener("load",()=>{img.hidden=false;msg.hidden=true;});
-  img.addEventListener("error",()=>{if(++state.index<state.urls.length)img.src=state.urls[state.index];else{img.hidden=true;msg.hidden=false;}});
+  const box=element("div","rank-thumbbox"),img=element("img"),msg=element("span","","画像未取得");img.alt="";img.loading="lazy";img.referrerPolicy="no-referrer";img.style.opacity="0";box.append(msg,img);state={box,img,msg,identity,index:0,urls:[],slot:-1,loaded:false};enhancedThumbs.set(key,state);
+  img.addEventListener("load",()=>{state.loaded=true;img.style.opacity="1";msg.hidden=true;});
+  img.addEventListener("error",()=>{if(++state.index<state.urls.length)img.src=state.urls[state.index];else{state.loaded=false;img.style.opacity="0";msg.hidden=false;}});
  }
  const slot=Math.floor(Date.now()/60000);
  if(state.slot!==slot){state.slot=slot;state.urls=[...direct,"https://kane-nao.tail7d733c.ts.net/api/thumbnail?platform="+(type==="nico"?"niconico":"kick")+"&id="+encodeURIComponent(row.id)+"&slot="+slot];state.index=0;
  // Keep an already loaded image unless its URL changes; missing images retry.
- if(state.img.hidden||!state.urls.includes(state.img.getAttribute("src")))state.img.src=state.urls[0];}
+ if(!state.loaded||!state.urls.includes(state.img.getAttribute("src")))state.img.src=state.urls[0];}
  return state.box;
 }
 function setEnhancedMode(on,reason){
