@@ -1208,6 +1208,7 @@ async function kickRegisteredChannelsResponse(env){
 function giftSubscriptionRows(payload){if(!Array.isArray(payload?.data))throw Error("invalid subscriptions");return payload.data.filter(x=>x?.method==="webhook"&&Number(x.version)===1&&KICK_EVENTS.includes(x.event)&&/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(x.id||"")&&officialGiftCount(x.broadcaster_user_id)>0);}
 function giftSubscriptionMatch(rows,id,event){return rows.some(x=>x.id.toUpperCase()===id.toUpperCase()&&x.event===event.type&&officialGiftCount(x.broadcaster_user_id)===event.broadcaster);}
 async function verifyGiftSubscription(env,id,event){
+ if(await autoGiftMatch(env,id,event))return true;
  const configured=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim();
  if(configured)return giftAllowedIds(env).includes(id.toUpperCase());
  if(!env.KICK_CLIENT_ID||!env.KICK_CLIENT_SECRET)throw Error("missing API credentials");
@@ -1224,7 +1225,7 @@ async function kickGiftWebhook(request,env){
  const id=request.headers.get("Kick-Event-Message-Id")||"",subscription=request.headers.get("Kick-Event-Subscription-Id")||"",stamp=request.headers.get("Kick-Event-Message-Timestamp")||"",signature=request.headers.get("Kick-Event-Signature")||"";
  const configured=String(env.KICK_GIFT_SUBSCRIPTION_IDS||"").trim();
  const now=Date.now(),sent=Date.parse(stamp);
- if(!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)||!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(subscription)||(type!=="chat.message.sent"&&configured&&!giftAllowedIds(env).includes(subscription.toUpperCase()))||!Number.isFinite(sent)||sent>now+60000||sent<now-86400000||!signature||signature.length>2048)return new Response(null,{status:403});
+ if(!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)||!/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(subscription)||!Number.isFinite(sent)||sent>now+60000||sent<now-86400000||!signature||signature.length>2048)return new Response(null,{status:403});
  if(!request.body||Number(request.headers.get("content-length")||0)>262144)return new Response(null,{status:413});
  let raw;try{
   const reader=request.body.getReader(),chunks=[];let size=0;
@@ -1843,7 +1844,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r110</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r111</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1903,7 +1904,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r110"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r111"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1990,6 +1991,87 @@ async function readHomeImage(response,max=1048576){
  const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
  return homeImageType(bytes)===type?{bytes,type}:null;
 }
+
+const AUTO_GIFT_KINDS=["kicks.gifted","channel.subscription.gifts"];
+const AUTO_GIFT_SCHEMA="CREATE TABLE IF NOT EXISTS kick_auto_gift_subscriptions (id TEXT PRIMARY KEY,broadcaster_id INTEGER NOT NULL,kind TEXT NOT NULL,created INTEGER NOT NULL,last_seen INTEGER NOT NULL)";
+function giftAutoPlan(target,existing,owned,allowed,attempts,now){
+ const events=["kicks.gifted","channel.subscription.gifts"],valid=new Set(target.map(x=>x.id)),protectedIds=new Set(allowed),byKey=new Set(existing.map(x=>x.broadcaster_user_id+":"+x.event)),pending=new Set(owned.filter(x=>now-x.created<900000).map(x=>x.broadcaster_id+":"+x.kind));
+ const remove=owned.filter(x=>!valid.has(x.broadcaster_id)&&now-x.last_seen>=900000&&!protectedIds.has(x.id)&&existing.some(e=>e.id.toUpperCase()===x.id&&Number(e.broadcaster_user_id)===x.broadcaster_id&&e.event===x.kind)).slice(0,12);
+ const add=[];let capacity=Math.max(0,120-owned.length);
+ for(const t of target){if(add.length>=5||capacity<=0)break;if(now-(attempts[t.id]||0)<900000)continue;const missing=events.filter(e=>!byKey.has(t.id+":"+e)&&!pending.has(t.id+":"+e)).slice(0,capacity);if(missing.length){add.push({id:t.id,events:missing});capacity-=missing.length;}}
+ return {add,remove};
+}
+async function autoGiftMatch(env,id,event){
+ if(!env.KICK_GIFT_DB)return false;
+ try{const row=await env.KICK_GIFT_DB.prepare("SELECT id FROM kick_auto_gift_subscriptions WHERE id=? AND broadcaster_id=? AND kind=?").bind(id.toUpperCase(),event.broadcaster,event.type).first();return !!row;}catch{return false;}
+}
+async function syncHomeGiftSubscriptions(hub){
+ const env=hub.env,store=hub.ctx.storage,now=Date.now();
+ if(hub.autoGiftRunning||!env.KICK_GIFT_DB||!env.KICK_CLIENT_ID||!env.KICK_CLIENT_SECRET||String(env.KICK_AUTO_RANK_GIFTS||"")==="0")return;
+ hub.autoGiftRunning=true;
+ try{
+  const state=await store.get("homeGiftState")||{},attempts=state.attempts||{};
+  if(now-(state.lastAttempt||0)<120000||now<(state.pauseUntil||0))return;
+  await store.put("homeGiftState",{...state,lastAttempt:now});
+  // Only the server's fixed snapshot, never viewer-supplied channel names.
+  const raw=JSON.parse(await fetchBounded(HOME_RANKING_ORIGIN+"/api/rankings/compact",{headers:{accept:"application/json"}},2097152));
+  const frame=enhancedHomeFrames(raw,now)?.frames?.kick;
+  if(!frame?.entries?.length){await store.put("homeGiftState",{...state,lastAttempt:now,status:"home unavailable"});return;}
+  const slugs=[...new Set(frame.entries.map(r=>r.id))].slice(0,50);
+  const token=await kickToken(env),headers={authorization:"Bearer "+token,accept:"application/json"},base="https://api.kick.com/public/v1/events/subscriptions";
+  const read=async u=>JSON.parse(await fetchBounded(u,{headers},2097152));
+  const lookup=(await read("https://api.kick.com/public/v1/channels?"+slugs.map(s=>"slug="+encodeURIComponent(s)).join("&"))).data;
+  if(!Array.isArray(lookup))throw Error("channel lookup");
+  const target=slugs.map(slug=>{const hits=lookup.filter(c=>c.slug?.toLowerCase()===slug),c=hits.length===1?hits[0]:null,id=officialGiftCount(c?.broadcaster_user_id);return id?{slug,id,activeGift:officialGiftCount(c.active_gifted_subscribers_count)}:null;}).filter(Boolean);
+  if(!target.length)throw Error("channel identity unavailable");
+  await env.KICK_GIFT_DB.prepare(AUTO_GIFT_SCHEMA).run();
+  const existing=giftSubscriptionRows(await read(base));
+  const owned=(await env.KICK_GIFT_DB.prepare("SELECT id,broadcaster_id,kind,created,last_seen FROM kick_auto_gift_subscriptions LIMIT 121").all()).results||[];
+  const allowed=giftAllowedIds(env);
+  // Preserve manual subscriptions, and do not remove any entries on partial snapshots/identity lookup.
+  const targetIds=new Set(target.map(t=>t.id));
+  for(const o of owned)if(targetIds.has(o.broadcaster_id))o.last_seen=now;
+  const ids=[...targetIds];if(ids.length)await env.KICK_GIFT_DB.prepare("UPDATE kick_auto_gift_subscriptions SET last_seen=? WHERE broadcaster_id IN ("+ids.map(()=>"?").join(",")+")").bind(now,...ids).run();
+  const plan=giftAutoPlan(target,existing,owned,allowed,attempts,now);
+  if(target.length!==slugs.length||slugs.length<50)plan.remove=[];
+  if(plan.remove.length){
+   await fetchBounded(base+"?"+plan.remove.map(o=>"id="+encodeURIComponent(o.id)).join("&"),{method:"DELETE",headers},65536);
+   await env.KICK_GIFT_DB.batch(plan.remove.map(o=>env.KICK_GIFT_DB.prepare("DELETE FROM kick_auto_gift_subscriptions WHERE id=?").bind(o.id)));
+  }
+  const confirmed=existing.slice(),ownedIds=new Set(owned.map(x=>x.id));let created=0;
+  for(const job of plan.add){
+   attempts[job.id]=now;await store.put("homeGiftState",{...state,lastAttempt:now,attempts});
+   const posted=JSON.parse(await fetchBounded(base,{method:"POST",headers:{...headers,"content-type":"application/json"},body:JSON.stringify({broadcaster_user_id:job.id,method:"webhook",events:job.events.map(name=>({name,version:1}))})},65536));
+   for(const p of posted.data||[]){
+    const id=String(p.subscription_id||"").toUpperCase();
+    if(p.error||!job.events.includes(p.name)||Number(p.version)!==1||!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)||existing.some(x=>x.id.toUpperCase()===id))continue;
+    await env.KICK_GIFT_DB.prepare("INSERT OR IGNORE INTO kick_auto_gift_subscriptions(id,broadcaster_id,kind,created,last_seen) VALUES(?,?,?,?,?)").bind(id,job.id,p.name,now,now).run();ownedIds.add(id);created++;
+   }
+  }
+  // Only official GET-confirmed subscriptions are labelled active. Existing manual IDs are respected.
+  const roster=target.map(t=>({...t,events:AUTO_GIFT_KINDS.filter(kind=>confirmed.some(x=>Number(x.broadcaster_user_id)===t.id&&x.event===kind&&(!allowed.length||allowed.includes(x.id.toUpperCase())||ownedIds.has(x.id.toUpperCase()))))}));
+  for(const k of Object.keys(attempts))if(now-attempts[k]>86400000)delete attempts[k];
+  await store.put("homeGiftState",{lastAttempt:now,checkedAt:now,status:"ok",attempts,roster,created,removed:plan.remove.length});
+  hub.autoGiftCache=null;
+ }catch(e){
+  const state=await store.get("homeGiftState")||{};
+  await store.put("homeGiftState",{...state,lastAttempt:now,status:"paused",pauseUntil:now+300000,error:connectionError(e)});
+ }finally{hub.autoGiftRunning=false;}
+}
+async function homeGiftData(hub){
+ const now=Date.now(),env=hub.env,state=await hub.ctx.storage.get("homeGiftState")||{};
+ if(state.status!=="ok"||!Array.isArray(state.roster)||!Number.isFinite(state.checkedAt)||now-state.checkedAt>600000)return {status:"unavailable",checkedAt:now,entries:[],reason:state.status||"pending"};
+ if(hub.autoGiftCache&&now-hub.autoGiftCache.checkedAt<20000)return hub.autoGiftCache;
+ const roster=state.roster.slice(0,50),ids=roster.map(x=>x.id);
+ if(!ids.length)return {status:"unavailable",checkedAt:now,entries:[]};
+ try{
+  const result=await env.KICK_GIFT_DB.prepare("SELECT broadcaster_id,kind,SUM(amount) AS total FROM kick_gift_events WHERE occurred_at>=? AND occurred_at<=? AND broadcaster_id IN ("+ids.map(()=>"?").join(",")+") GROUP BY broadcaster_id,kind").bind(now-86400000,now,...ids).all();
+  const rows=roster.map(t=>{const total=kind=>officialGiftCount((result.results||[]).find(r=>r.broadcaster_id===t.id&&r.kind===kind)?.total);
+   return {id:t.slug,checkedAt:now,kicksGift:total("kicks.gifted"),giftedSubscriptionsReceived:total("channel.subscription.gifts"),giftedSubscriptions:t.activeGift,kicksGiftSubscriptionVerified:t.events.includes("kicks.gifted"),giftSubSubscriptionVerified:t.events.includes("channel.subscription.gifts"),kicksGiftStage:t.events.includes("kicks.gifted")?"公式購読確認済み・24時間受信分":"公式自動購読確認待ち",giftedSubscriptionsStage:t.activeGift===null?"公式API未取得":"公式API取得済み"};});
+  return hub.autoGiftCache={status:"ok",checkedAt:now,rosterCheckedAt:state.checkedAt,entries:rows};
+ }catch{return {status:"unavailable",checkedAt:now,entries:[]};}
+}
+
 async function homeThumbnailResponse(request){
  const headers={"x-content-type-options":"nosniff","cross-origin-resource-policy":"same-origin"};
  if(request.method!=="GET")return new Response(null,{status:405,headers:{...headers,allow:"GET","cache-control":"no-store"}});
@@ -2009,7 +2091,7 @@ async function homeThumbnailResponse(request){
  return result;
 }
 
-async function enhancedHomeRanking(request){
+async function enhancedHomeRanking(request,ctx){
  if(request.method!=="GET")return json({status:"error"},405);
  const key=new Request(new URL("/__cache/home-ranking-data-r109",request.url));
  try{const cached=await caches.default.match(key);if(cached)return json(await cached.json());}catch{}
@@ -2020,12 +2102,13 @@ async function enhancedHomeRanking(request){
   const reader=response.body.getReader(),decoder=new TextDecoder();let size=0,raw="";
   try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2097152){await reader.cancel();throw Error("home size");}raw+=decoder.decode(value,{stream:true});}raw+=decoder.decode();}finally{reader.releaseLock();}
   result=enhancedHomeFrames(JSON.parse(raw))||result;
+  if(result.frames?.kick){try{const ns=ctx.exports.RankingLiveHub,g=await (await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/home-gift-data")).json();if(g.status==="ok"){const map=new Map(g.entries.map(r=>[r.id,r]));for(const row of result.frames.kick.entries){const v=map.get(row.id);if(!v)continue;for(const k of ["kicksGift","giftedSubscriptions","giftedSubscriptionsReceived","kicksGiftSubscriptionVerified","kicksGiftStage","giftedSubscriptionsStage"])if(v[k]!=null)row[k]=v[k];}}}catch{}}
  }catch{}
  try{await caches.default.put(key,json(result,200,"public, max-age=8"));}catch{}
  return json(result);
 }
 
-export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.RankingLiveHub;await ns.get(ns.idFromName("shared-rankings-v1")).fetch(new Request("https://internal/rankings-warm",{method:"POST"}));}catch{}},async fetch(request,env,ctx){
+export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.RankingLiveHub;const hub=ns.get(ns.idFromName("shared-rankings-v1"));await Promise.allSettled([hub.fetch(new Request("https://internal/rankings-warm",{method:"POST"})),hub.fetch(new Request("https://internal/home-gift-sync",{method:"POST"}))]);}catch{}},async fetch(request,env,ctx){
  const url=new URL(request.url),match=/^\/api\/rankings\/(nico|kick)$/.exec(url.pathname);
  const adminTarget=adminRouteTarget(url.pathname,request.method);
  if(adminTarget){if(adminTarget.redirect)return adminResponse(null,303,{location:adminTarget.redirect});if(adminTarget.legacy)return adminResponse("管理者ページは /admin に移動しました。",404);return kickAdminRoute(request,env,adminTarget.path,ctx);}
@@ -2035,10 +2118,11 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
  if(url.pathname==="/api/home-ranking-thumbnail")return homeThumbnailResponse(request);
- if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request);
+ if(url.pathname==="/api/home-kick-gifts"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/home-gift-data");}catch{return json({status:"unavailable",entries:[]},503);}}
+ if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request,ctx);
  if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
  if(url.pathname==="/home-ranking")return request.method==="GET"||request.method==="HEAD"?new Response(null,{status:302,headers:{location:"/api/ranking-page","cache-control":"no-store"}}):json({status:"error"},405);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r110",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r111",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}
@@ -2224,6 +2308,8 @@ export class RankingLiveHub extends DurableObject{
  }
  async fetch(request){
   const internal=new URL(request.url);
+  if(internal.hostname==="internal"&&internal.pathname==="/home-gift-sync"&&request.method==="POST"){await syncHomeGiftSubscriptions(this);return new Response(null,{status:204});}
+  if(internal.hostname==="internal"&&internal.pathname==="/home-gift-data"&&request.method==="GET")return json(await homeGiftData(this),200,"no-store");
   if(internal.hostname==="internal"&&internal.pathname==="/admin-budget"&&request.method==="GET")return json(rankingBudgetView(await this.ctx.storage.get("budget"),Date.now(),!this.clients().length,this.running),200,"no-store");
   if(internal.hostname==="internal"&&["/rankings-warm","/nico-warm"].includes(internal.pathname)&&request.method==="POST"){const now=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),now),last=await this.ctx.storage.get("lastStart")||0;if(!this.running){await this.updateBudgetNotice(b,!this.clients().length);if(this.clients().length&&b.allowed)await this.schedule(nextLiveStart(last,now));else if(idleBudgetAllowed(b))await this.schedule(idleNextStart(last,now));}return new Response(null,{status:204});}
   if(internal.hostname==="internal"&&["/nico-snapshot","/rankings-snapshot"].includes(internal.pathname)&&request.method==="GET"){const saved=await this.ctx.storage.get("snapshot"),stats=this.stats.size?[...this.stats.values()]:saved?.stats||[],now=Date.now();const nico=rankingSnapshot(this.latest.get("nico")||saved?.nico,"nico",stats,now),kick=rankingSnapshot(this.latest.get("kick")||saved?.kick,"kick",[],now);for(const [kind,frame] of [["nico",nico],["kick",kick]])if(frame)frame.sharedTrend=this.trends.get(kind)||saved?.trends?.[kind]||null;return json(internal.pathname==="/nico-snapshot"?(nico||{status:"pending",entries:[]}):{status:nico||kick?"ok":"pending",nico,kick,checkedAt:now},200,"no-store");}
