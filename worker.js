@@ -1820,7 +1820,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r101</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.27-r102</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/kick-api/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -1878,7 +1878,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r101"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.27-r102"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -1889,7 +1889,7 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/nico-statistics")return url.searchParams.get("stream")==="1"&&request.method==="GET"?nicoStatisticsStream(request):nicoSupplementalStatistics(request);
  if(url.pathname==="/api/live-thumbnail")return liveThumbnail(request);
  if(url.pathname==="/api/live-profile"&&request.method==="GET")return resolveNicoProfile(request);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r101",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.27-r102",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/rankings-live"){
@@ -1963,6 +1963,63 @@ async function liveReadFrames(response,apply){
  }buffer+=decoder.decode();line(buffer);
  }finally{reader.releaseLock();}
 }
+const overallWeights={nico:[["active10m",30],["momentum",20],["visitors",15],["comments",15],["advertising",10],["gift",10]],kick:[["viewers",25],["activeUsers",25],["receivedComments",20],["viewerRate",15],["kicksGift",5],["giftedSubscriptions",5],["giftedSubscriptionsReceived",5]]};
+function scoreOverall(entries,type,now){
+ const spec=overallWeights[type],rows=entries.map((row,index)=>({...row,sourceRank:index+1}));
+ const chatFresh=row=>{const age=now-Date.parse(row.sampledAt);return row.chatPartial===false&&Number.isFinite(age)&&age>=0&&age<=45000;};
+ const commonChatSeconds=type==="kick"&&rows.length?[30,15,10,5].find(sec=>rows.every(row=>chatFresh(row)&&Number.isSafeInteger(row.chatCounts?.[sec])&&row.chatCounts[sec]>=0))??null:null;
+ const value=(row,key)=>{
+  if(type==="kick"&&["activeUsers","receivedComments"].includes(key)){
+   const age=now-Date.parse(key==="activeUsers"?row.activeSampledAt:row.sampledAt);
+   if(!Number.isFinite(age)||age<0||age>(key==="activeUsers"?90000:45000))return null;
+   if(key==="activeUsers"){if(row.activePartial!==false||row.activeWindowSeconds!==600)return null;}
+   else return commonChatSeconds===null?null:row.chatCounts[commonChatSeconds];
+  }
+  if(type==="nico"&&key==="active10m"&&Number.isFinite(row.activitySampleEnd)&&(now-row.activitySampleEnd*1000>240000||row.activitySampleEnd*1000>now+30000))return null;
+  const n=row[key];return typeof n==="number"&&Number.isFinite(n)&&(key==="viewerRate"||n>=0)?n:null;
+ };
+ // Use the same verified metric set for every candidate. Missing never means zero.
+ const available=spec.filter(([key])=>rows.length&&rows.every(row=>value(row,key)!==null));
+ const weight=available.reduce((a,[,w])=>a+w,0);
+ const scale=(v,key)=>key==="viewerRate"?Math.sign(v)*Math.log1p(Math.abs(v)):Math.log1p(v);
+ const ranges=available.map(([key,w])=>{const vals=rows.map(row=>scale(value(row,key),key));return {key,w,min:key==="viewerRate"?Math.min(0,...vals):0,max:Math.max(0,...vals)};});
+ for(const row of rows){
+  let points=0;
+  for(const {key,w,min,max} of ranges){const n=scale(value(row,key),key),part=max>min?(n-min)/(max-min):0;points+=w*part;}
+  row.overallScore=weight?Math.round(points/weight*1000)/10:null;
+  row.overallUsed=available.length;row.overallTotal=spec.length;row.overallChatSeconds=commonChatSeconds;
+ }
+ if(weight)rows.sort((a,b)=>b.overallScore-a.overallScore||a.sourceRank-b.sourceRank);
+ return {entries:rows,used:available.length,total:spec.length,weight,keys:available.map(([key])=>key==="receivedComments"?"receivedComments"+commonChatSeconds+"s":key).join(",")};
+}
+function compareRanking(current,previous,type){
+ const before=new Map((previous?.entries||[]).map((r,i)=>[r.id,{...r,rank:r.rank??i+1}]));
+ const seconds=(Date.parse(current.fetchedAt)-Date.parse(previous?.fetchedAt))/1000;
+ return current.entries.slice(0,10).map((row,i)=>{
+  const old=before.get(row.id),same=!!old&&current.source===previous?.source&&(current.sourceMetric||current.metric)===(previous?.sourceMetric||previous?.metric)&&seconds>=1&&seconds<=240&&(type==="nico"||(Number.isFinite(Date.parse(row.startedAt))&&Date.parse(row.startedAt)===Date.parse(old.startedAt)));
+  const delta=(key,monotonic=false)=>same&&Number.isSafeInteger(row[key])&&Number.isSafeInteger(old[key])&&(!monotonic||row[key]>=old[key])?row[key]-old[key]:null;
+  const rankComparable=!!old&&current.source===previous?.source&&current.metric===previous?.metric&&seconds>=1&&seconds<=240;
+  return {...row,previousRank:rankComparable?old.rank:null,rankChange:rankComparable?old.rank-i-1:null,viewerChange:delta("viewers"),viewerRate:delta("viewers")===null?null:delta("viewers")*60/seconds,visitorChange:delta("visitors",true),commentChange:delta("comments",true)};
+ });
+}
+function compactTrendFrame(frame,type){
+ if(frame?.status!=="ok"||frame.stale||!Array.isArray(frame.entries)||!frame.entries.length||!Number.isFinite(Date.parse(frame.fetchedAt)))return null;
+ return {status:"ok",source:frame.source,metric:frame.sourceMetric||frame.metric,fetchedAt:frame.fetchedAt,entries:frame.entries.slice(0,10).filter(r=>(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(r.id)).map(r=>({id:r.id,startedAt:r.startedAt||"",...Object.fromEntries(["viewers","visitors","comments"].filter(k=>Number.isSafeInteger(r[k])&&r[k]>=0).map(k=>[k,r[k]]))}))};
+}
+function collectSharedTrend(old,frame,type,stats,now=Date.now()){
+ const raw=compactTrendFrame(frame,type),at=Date.parse(raw?.fetchedAt);
+ const samples=(old?.samples||[]).filter(x=>Number.isFinite(x.at)&&x.at>=now-600000&&x.at<=now+30000);
+ if(!raw||at<now-600000||at>now+30000||!raw.entries.length)return {...old,samples};
+ const previous=old?.current&&Date.parse(old.current.fetchedAt)<at?old.current:old?.previous;
+ const byId=new Map((stats||[]).map(x=>[x.id,x]));
+ const entries=frame.entries.slice(0,10).map(row=>type==="nico"?retainNicoStats(byId.get(row.id),row,now):row);
+ const ranked=scoreOverall(compareRanking({...frame,entries},previous,type),type,now);
+ const ranks=Object.fromEntries(ranked.entries.filter(r=>raw.entries.some(x=>x.id===r.id)).map((r,i)=>[r.id,i+1]));
+ const starts=Object.fromEntries(raw.entries.map(r=>[r.id,r.startedAt]));
+ const sample={at,source:frame.source,metric:"総合勢い r80 / "+ranked.keys,ranks,starts};
+ const byTime=new Map(samples.map(x=>[x.at,x]));byTime.set(at,sample);
+ return {current:raw,previous,samples:[...byTime.values()].sort((x,y)=>x.at-y.at).slice(-21)};
+}
 function rankingSnapshot(frame,kind,stats,now=Date.now()){
  if(frame?.status!=="ok"||!Array.isArray(frame.entries)||!frame.entries.length)return null;
  const at=Date.parse(frame.fetchedAt),age=now-at;
@@ -1976,7 +2033,7 @@ function rankingSnapshot(frame,kind,stats,now=Date.now()){
  return {...frame,entries,stale:age>90000||!!frame.stale,fromSnapshot:true};
 }
 export class RankingLiveHub extends DurableObject{
- constructor(ctx,env){super(ctx,env);this.running=false;this.latest=new Map();this.lastSent=new Map();this.stats=new Map();}
+ constructor(ctx,env){super(ctx,env);this.running=false;this.latest=new Map();this.lastSent=new Map();this.stats=new Map();this.trends=new Map();}
  clients(){return this.ctx.getWebSockets().filter(ws=>ws.readyState===1);}
  send(ws,frame){try{ws.send(JSON.stringify(frame));}catch{try{ws.close(1011,"send failed");}catch{}}}
  broadcast(kind,data){
@@ -1994,7 +2051,7 @@ export class RankingLiveHub extends DurableObject{
  async fetch(request){
   const internal=new URL(request.url);
   if(internal.hostname==="internal"&&["/rankings-warm","/nico-warm"].includes(internal.pathname)&&request.method==="POST"){const now=Date.now(),b=liveBudget(await this.ctx.storage.get("budget"),now),last=await this.ctx.storage.get("lastStart")||0;if(!this.running){if(this.clients().length&&b.allowed)await this.schedule(nextLiveStart(last,now));else if(idleBudgetAllowed(b))await this.schedule(idleNextStart(last,now));}return new Response(null,{status:204});}
-  if(internal.hostname==="internal"&&["/nico-snapshot","/rankings-snapshot"].includes(internal.pathname)&&request.method==="GET"){const saved=await this.ctx.storage.get("snapshot"),stats=this.stats.size?[...this.stats.values()]:saved?.stats||[],now=Date.now();const nico=rankingSnapshot(this.latest.get("nico")||saved?.nico,"nico",stats,now),kick=rankingSnapshot(this.latest.get("kick")||saved?.kick,"kick",[],now);return json(internal.pathname==="/nico-snapshot"?(nico||{status:"pending",entries:[]}):{status:nico||kick?"ok":"pending",nico,kick,checkedAt:now},200,"no-store");}
+  if(internal.hostname==="internal"&&["/nico-snapshot","/rankings-snapshot"].includes(internal.pathname)&&request.method==="GET"){const saved=await this.ctx.storage.get("snapshot"),stats=this.stats.size?[...this.stats.values()]:saved?.stats||[],now=Date.now();const nico=rankingSnapshot(this.latest.get("nico")||saved?.nico,"nico",stats,now),kick=rankingSnapshot(this.latest.get("kick")||saved?.kick,"kick",[],now);for(const [kind,frame] of [["nico",nico],["kick",kick]])if(frame)frame.sharedTrend=this.trends.get(kind)||saved?.trends?.[kind]||null;return json(internal.pathname==="/nico-snapshot"?(nico||{status:"pending",entries:[]}):{status:nico||kick?"ok":"pending",nico,kick,checkedAt:now},200,"no-store");}
   if(request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return new Response("WebSocket required",{status:426});
   if(this.clients().length>=200)return new Response("接続上限",{status:503});
   const pair=new WebSocketPair(),client=pair[0],server=pair[1];this.ctx.acceptWebSocket(server);
@@ -2002,7 +2059,7 @@ export class RankingLiveHub extends DurableObject{
   const stats=this.stats.size?[...this.stats.values()]:saved?.stats||[];
   for(const kind of ["nico","kick"]){
    const frame=rankingSnapshot(this.latest.get(kind)||saved?.[kind],kind,stats);
-   if(frame)this.send(server,{kind,data:frame});
+   if(frame)this.send(server,{kind,data:{...frame,sharedTrend:this.trends.get(kind)||saved?.trends?.[kind]||null}});
   }
   if(stats.length)this.send(server,{kind:"nico-stats",data:{status:"ok",entries:stats.filter(r=>Date.now()-r.checkedAt<=86400000)}});
   const b=liveBudget(await this.ctx.storage.get("budget"),Date.now());
@@ -2043,12 +2100,13 @@ export class RankingLiveHub extends DurableObject{
    const saved=await this.ctx.storage.get("snapshot")||{};
    for(const kind of ["nico","kick"])if(!this.latest.has(kind)&&saved[kind])this.latest.set(kind,saved[kind]);
    if(!this.stats.size)for(const row of saved.stats||[])this.stats.set(row.id,row);
+   for(const kind of ["nico","kick"])if(!this.trends.has(kind)&&saved.trends?.[kind])this.trends.set(kind,saved.trends[kind]);
    this.broadcast("state",{message:"共有データ取得中",paused:false,updating:true,nextAt:null});
    const feed=this.ctx.exports.RankingFeed;
    const receive=(kind,frame)=>{
     if(frame.status==="ok"&&Array.isArray(frame.entries)&&Number.isFinite(Date.parse(frame.fetchedAt))){
      const old=this.latest.get(kind);if(old&&Date.parse(old.fetchedAt)>Date.parse(frame.fetchedAt))return;
-     this.latest.set(kind,frame);this.broadcast(kind,frame);
+     this.latest.set(kind,frame);this.broadcast(kind,{...frame,sharedTrend:this.trends.get(kind)||null});
     }else this.broadcast("rank-error",{platform:kind,message:frame.message||(kind==="nico"?"ニコ生":"Kick")+"取得再試行待ち"});
    };
    const nico=async()=>{
@@ -2064,7 +2122,8 @@ export class RankingLiveHub extends DurableObject{
    };
    const kick=async()=>{try{await liveReadFrames(await feed.fetch("https://internal/kick"),frame=>receive("kick",frame));}catch(e){const old=rankingSnapshot(this.latest.get("kick"),"kick",[]);if(old)this.broadcast("kick",{...old,stale:true});this.broadcast("rank-error",{platform:"kick",message:"Kick一覧取得失敗: "+diagnostic(e)});}};
    const results=await Promise.allSettled([nico(),kick()]);
-   await this.ctx.storage.put("snapshot",{nico:this.latest.get("nico")||null,kick:this.latest.get("kick")||null,stats:[...this.stats.values()].filter(r=>Date.now()-r.checkedAt<=86400000)});
+   for(const kind of ["nico","kick"]){const frame=this.latest.get(kind);if(!frame||frame.stale||kind==="kick"&&frame.done!==true)continue;const old=this.trends.get(kind);if(Date.parse(old?.current?.fetchedAt)>=Date.parse(frame.fetchedAt))continue;const trend=collectSharedTrend(old,frame,kind,kind==="nico"?[...this.stats.values()]:[],Date.now());this.trends.set(kind,trend);this.broadcast("rank-trend",{platform:kind,trend});}
+   await this.ctx.storage.put("snapshot",{nico:this.latest.get("nico")||null,kick:this.latest.get("kick")||null,stats:[...this.stats.values()].filter(r=>Date.now()-r.checkedAt<=86400000),trends:Object.fromEntries(this.trends)});
    this.broadcast("state",{message:results.some(r=>r.status==="rejected")?"一部取得に失敗・次回再試行":"60秒自動更新・共有接続中",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});
   }catch{this.broadcast("state",{message:"共有取得エラー・再試行待ち",paused:false,updating:false,nextAt:nextLiveStart(start,Date.now())});}
   finally{
