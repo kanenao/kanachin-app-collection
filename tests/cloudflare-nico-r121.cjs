@@ -2,7 +2,7 @@ const assert=require("node:assert/strict"),fs=require("node:fs");
 const w=fs.readFileSync("worker.js","utf8"),h=fs.readFileSync("rankings/index.html","utf8");
 const start=w.indexOf("function officialEventUrl120"),end=w.indexOf("async function enhancedHomeRanking",start);
 assert.ok(start>=0&&end>start);
-const f=new Function("clean","liveId","imageCandidates","nicoSupplierImageFields",w.slice(start,end)+";return {cfChannelId121,cfChannelIconUrl121,cfChannelIconCandidates121,cfWatchChannel121,cfCollectGiftEvents121,cfNicoEventLinks121,cfNicoEventRows121};")(v=>String(v??"").replace(/<[^>]+>/g,"").trim(),v=>String(v??""),(...v)=>v.flat(Infinity).filter(x=>typeof x==="string"),p=>[p.supplier?.thumbnailUrl]);
+const f=new Function("clean","liveId","imageCandidates","nicoSupplierImageFields",w.slice(start,end)+";return {cfChannelId121,cfChannelIconUrl121,cfChannelIconCandidates121,cfChannelPageIcons125,cfWatchChannel121,cfCollectGiftEvents121,cfNicoEventLinks121,cfNicoEventRows121};")(v=>String(v??"").replace(/<[^>]+>/g,"").trim(),v=>String(v??""),(...v)=>v.flat(Infinity).filter(x=>typeof x==="string"),p=>[p.supplier?.thumbnailUrl]);
 const url="https://secure-dcdn.cdn.nimg.jp/comch/channel-icon/128x128/ch123.jpg";
 assert.equal(f.cfChannelId121({providerType:"channel",supplier:{programProviderId:{value:"ch123"}}}),"123");
 assert.equal(f.cfChannelId121({providerType:"channel",supplier:{programProviderId:"ch123",pageUrl:"https://ch.nicovideo.jp/ch456"}}),"");
@@ -53,3 +53,14 @@ for(const m of h.matchAll(/<script[^>]*>([^]*?)<[/]script>/gi))new Function(m[1]
  assert.ok(h.includes("conductorId=29174&amp;frameMasterId=57"));
  console.log("r124 official ad/free gift links separate from ranking; no automated claim passed");
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+;{
+const numeric="https://secure-dcdn.cdn.nimg.jp/comch/channel-icon/128x128/123.jpg",other="https://secure-dcdn.cdn.nimg.jp/comch/channel-icon/128x128/456.jpg",opaque="https://img.cdn.nimg.jp/channel/unique.jpg";
+assert.ok(f.cfChannelIconCandidates121("123").includes(numeric));
+assert.deepEqual(f.cfChannelPageIcons125('<meta property="og:image" content="'+numeric+'">',"123"),[numeric]);
+assert.deepEqual(f.cfChannelPageIcons125('<link rel="canonical" href="https://ch.nicovideo.jp/ch123"><meta property="og:image" content="'+opaque+'">',"123"),[opaque]);
+assert.deepEqual(f.cfChannelPageIcons125('<link rel="canonical" href="https://ch.nicovideo.jp/ch456"><meta property="og:image" content="'+opaque+'">',"123"),[]);
+assert.deepEqual(f.cfChannelPageIcons125('<link rel="canonical" href="https://ch.nicovideo.jp/ch123"><meta property="og:image" content="'+other+'">',"123"),[]);
+assert.deepEqual(f.cfChannelPageIcons125('<meta property="og:image" content="https://evil.example/unique.jpg">',"123"),[]);
+console.log("r125 numeric CDN and official channel identity tests passed");
+}
