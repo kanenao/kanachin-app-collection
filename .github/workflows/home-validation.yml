@@ -1,0 +1,40 @@
+name: Home server offline validation
+on:
+  pull_request:
+    paths:
+      - 'live-ranking-updates/**'
+      - '.github/workflows/home-validation.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Decode verified original source
+        run: |
+          base64 -d live-ranking-updates/validation/v0.4.7.zip.b64 > /tmp/base.zip
+          echo '9a7460f9840a7176f49f607183ff576c3d203f346df5f4721ca2f9c1261f9085  /tmp/base.zip' | sha256sum -c
+          unzip -q /tmp/base.zip -d /tmp
+      - name: Validate and run original updater test suite
+        env:
+          RANKING_OFFLINE_TEST: '1'
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+          const root='/tmp/live-ranking-server-v0.4.7',u=require(root+'/updater.cjs');
+          const file=process.cwd()+'/live-ranking-updates/v0.5.10-candidate.json';
+          const raw=fs.readFileSync(file),v=JSON.parse(raw).version,m={schema:1,channel:'stable',version:v,bundle:'v'+v+'.json',sha256:u.sha(raw)};
+          const dir=path.join(root,'.updates','stage-ci');fs.mkdirSync(dir,{recursive:true});
+          for(const [k,s] of Object.entries(u.unpack(raw,u.manifest(m))))fs.writeFileSync(path.join(dir,k),s);
+          for(const f of u.TESTS){
+            const r=spawnSync(process.execPath,[path.join(dir,f)],{cwd:dir,env:{...process.env,RANKING_DATA_DIR:'/tmp/home-ci-data'},stdio:'inherit',timeout:20000});
+            assert.equal(r.status,0,f);
+          }
+          u.testFiles(dir);
+          console.log('Original updater offline validation passed');
+          NODE
