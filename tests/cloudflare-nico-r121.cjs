@@ -45,8 +45,8 @@ for(const m of h.matchAll(/<script[^>]*>([^]*?)<[/]script>/gi))new Function(m[1]
 ;(async()=>{
  const root="https://koken.nicovideo.jp/campaign",ad=root+"/event/202611-nicoadevent-christmasbanner",free=root+"/play/free_202611-kohaku-shiro",calls=[];
  const state=await f.cfCollectGiftEvents121(async u=>{calls.push(u);return u===root?'<a href="'+ad+'?conductorId=29386&frameMasterId=54">広告イベント</a><a href="'+free+'?conductorId=29124&frameMasterId=57">無料ギフト</a>':'';},"",null,Date.now());
- assert.ok(state.events.some(x=>x.category==="ad-campaign"&&x.url===ad));
- assert.ok(state.events.some(x=>x.category==="free-gift"&&x.url===free));
+ assert.ok(state.events.some(x=>x.category==="ad-campaign"&&x.url===ad+"?conductorId=29386&frameMasterId=54"));
+ assert.ok(state.events.some(x=>x.category==="free-gift"&&x.url===free+"?conductorId=29124&frameMasterId=57"));
  assert.ok(!calls.includes(free)&&!calls.includes(ad));
  assert.ok(state.events.every(x=>x.status==="link-only"&&!x.rows.length));
  assert.ok(h.includes("conductorId=29386&amp;frameMasterId=54"));
@@ -64,3 +64,5 @@ assert.deepEqual(f.cfChannelPageIcons125('<link rel="canonical" href="https://ch
 assert.deepEqual(f.cfChannelPageIcons125('<meta property="og:image" content="https://evil.example/unique.jpg">',"123"),[]);
 console.log("r125 numeric CDN and official channel identity tests passed");
 }
+
+;(async()=>{const article="https://blog.nicovideo.jp/niconews/15111",rank="https://audition.nicovideo.jp/embedded/ranking?key=fixture-gift&max_item_size=25&fixed_result=false",calls=[];const state=await f.cfCollectGiftEvents121(async u=>{calls.push(u);return u===article?'<script>const link="//audition.nicovideo.jp/embedded/ranking?key=fixture-gift"</script>':u===rank?JSON.stringify({ranking:[{rank:1,user:{id:123,name:"fixture"},score:42}]}):"";},"",null,Date.parse("2026-11-28T12:00:00Z"));assert.equal(state.events[0].rows[0].points,42);assert.ok(calls.includes(article));assert.ok(!calls.some(u=>u.includes("/campaign/play/")));console.log("r128 direct official article discovery passed");})().catch(e=>{console.error(e);process.exitCode=1;});
