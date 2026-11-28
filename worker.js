@@ -2163,14 +2163,14 @@ function enhancedHomeFrames(d,now=Date.now()){
    for(const key of ["chatStage","activeStage","statisticsStage","giftedSubscriptionsStage","kicksGiftStage"])row[key]=text(r[key],160);
    if(type==="kick"){
     row.kicksGiftSubscriptionVerified=r.kicksGiftSubscriptionVerified===true;row.kicksGiftRecordCount=num(r.kicksGiftRecordCount);row.giftSubSubscriptionVerified=r.giftSubSubscriptionVerified===true;row.chatSubscriptionVerified=r.chatSubscriptionVerified===true;row.webhookChatStage=text(r.webhookChatStage,160);row.webhookChatSampledAt=text(r.webhookChatSampledAt,50);
-    const webhookAge=now-Date.parse(row.webhookChatSampledAt);if(!Number.isFinite(webhookAge)||webhookAge<0||webhookAge>30000){row.webhookChatReceived=null;row.webhookActiveReceived=null;row.webhookActiveSeconds=null;row.webhookChatSampledAt="";}
+    const webhookAge=now-Date.parse(row.webhookChatSampledAt);// The home server already chooses the active measurement. Preserve it.
     row.viewerChange=Number.isSafeInteger(r.viewerDelta)?r.viewerDelta:null;
     row.sampledAt=text(r.chatSampledAt??r.sampledAt,50);row.activeSampledAt=text(r.activeSampledAt,50);
     const sec=r.chatWindowSeconds;const ca=now-Date.parse(row.sampledAt),aa=now-Date.parse(row.activeSampledAt);
-    row.chatWindowSeconds=[30,15,10,5].includes(sec)?sec:null;
-    row.chatPartial=!(row.chatWindowSeconds&&num(r.receivedComments)!==null&&ca>=0&&ca<=45000);
+    row.chatWindowSeconds=Number.isSafeInteger(sec)&&sec>0&&sec<=600?sec:null;
+    row.chatPartial=!(row.chatWindowSeconds&&num(r.receivedComments)!==null);
     row.chatCounts=row.chatPartial?{}:{[sec]:r.receivedComments};
-    row.activePartial=!(r.activeWindowSeconds===600&&num(r.activeUsers)!==null&&aa>=0&&aa<=90000);
+    row.activePartial=!(r.activeWindowSeconds===600&&num(r.activeUsers)!==null);
     row.activeUsers=row.activePartial?null:r.activeUsers;
    }
    // Active10m is already freshness-checked by the home server; do not independently expire it in the adapter.
