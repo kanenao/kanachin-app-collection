@@ -2535,7 +2535,7 @@ function homeGiftPrimary122(raw,now=Date.now()){
  const diagnostics=Array.isArray(raw.diagnostics)?raw.diagnostics:[],allFailed=diagnostics.length>0&&diagnostics.every(d=>typeof d?.error==="string");
  const freshRows=safe.events.filter(e=>e.status==="ok"&&freshGiftTime122(e.fetchedAt,now,720000));
  if((raw.status==="ok"&&!freshRows.length)||(!freshRows.length&&(allFailed||raw.events.some(e=>e?.status==="error"))))return null;
- if(!safe.events.some(e=>e.status==="ok")&&!safe.events.some(e=>e.category==="ranking"&&e.status==="link-only"))return null;
+ if(!safe.events.some(e=>e.status==="ok")&&raw.error==="公式イベントのリンク未取得")return null;
  if(raw.events.length>0&&!safe.events.length)return null;
  safe.events=safe.events.map(e=>e.status==="ok"&&!freshGiftTime122(e.fetchedAt,now,720000)?{...e,status:"link-only",rows:[],fetchedAt:null}:e);
  safe.status=freshRows.length?"ok":safe.events.length?"partial":"pending";
