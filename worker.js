@@ -2027,7 +2027,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r122</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r123</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -2096,7 +2096,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r122"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r123"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -2329,6 +2329,37 @@ function safeHomeGiftEvents120(raw){
  }
  return {status:events.some(e=>e.status==="ok")?"ok":events.length?"partial":"pending",checkedAt:time(raw.checkedAt),events};
 }
+
+function campaignCatalogLinks123(raw,base,parse,cleanText){
+ const map=new Map(),html=String(raw||"").slice(0,2097152);
+ const gift=/ギフト|ギフオーディション|giftevent|kohaku/i;
+ function add(value,label=""){
+  if(typeof value!=="string")return;
+  let url;try{url=new URL(value.replace(/&amp;|&#38;|&#x26;/gi,"&").replace(/\\u0026/gi,"&").replace(/\\\//g,"/"),base);}catch{return;}
+  if(url.protocol!=="https:"||url.hostname!=="koken.nicovideo.jp"||url.username||url.password||url.port||!/^\/campaign\/event\/[a-z0-9][a-z0-9_-]{1,100}\/?$/i.test(url.pathname))return;
+  const link=parse(url.origin+url.pathname);if(!link||link.type!=="campaign")return;
+  const title=cleanText(label,150);
+  // The catalog includes non-gift campaigns. Only explicitly labeled gift events or known gift keys.
+  if(!gift.test(title+" "+link.key))return;
+  const old=map.get(link.url);if(!old||(!old.title&&title))map.set(link.url,{...link,title:title||link.key});
+ }
+ for(const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){
+  const attr=(s,k)=>s.match(new RegExp("\\b"+k+"\\s*=\\s*([\"'])(.*?)\\1","i"))?.[2]||"";
+  const title=[cleanText(m[2],150),attr(m[1],"title"),attr(m[1],"aria-label"),...Array.from(m[2].matchAll(/<img\b[^>]*>/gi),x=>attr(x[0],"alt"))].filter(Boolean).join(" ");
+  add(attr(m[1],"href"),title);
+ }
+ // Structured catalog data: use an explicit event URL and its own title, never synthesize a slug.
+ let seen=0;
+ function walk(x,depth=0){if(!x||typeof x!=="object"||depth>14||++seen>12000)return;if(Array.isArray(x)){for(const y of x.slice(0,500))walk(y,depth+1);return;}
+  const label=[x.title,x.name,x.eventTitle,x.campaignTitle,x.description].filter(v=>typeof v==="string").join(" ");
+  for(const key of ["url","href","link","eventUrl","campaignUrl","detailUrl","path"])if(typeof x[key]==="string")add(x[key],label);
+  for(const [k,v] of Object.entries(x))if(!["__proto__","constructor","prototype"].includes(k))walk(v,depth+1);
+ }
+ for(const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)){if(/application\/(?:ld\+)?json|__NEXT_DATA__|__INITIAL_STATE__/i.test(m[1]))try{walk(JSON.parse(m[2]));}catch{}}
+ try{walk(JSON.parse(html));}catch{}
+ return [...map.values()].slice(0,16);
+}
+
 function cfNicoEventLink121(raw,base=""){
  if(typeof raw!=="string")return null;
  let s=raw.trim().replace(/&amp;|&#38;|&#x26;/gi,"&").replace(/\\u0026/gi,"&").replace(/\\\//g,"/");
@@ -2440,9 +2471,9 @@ async function cfCollectGiftEvents121(read,configured="",previous=null,now=Date.
  const get=async u=>{const host=new URL(u).hostname;if(paused.has(host))return null;try{return await read(u);}catch(e){const error=/^HTTP \d{3}$/.test(e?.message||"")?e.message:"通信・形式エラー";if(/^HTTP (403|429)$/.test(error))paused.add(host);diagnostics.push({source:host,error});return null;}};
  const add=x=>{if(x&&!items.has(x.url))items.set(x.url,x);};
  const put=(x,title)=>{if(!found.has(x.url))found.set(x.url,{...x,key:x.key||x.url,title:title||x.title||"公式ギフトイベント"});};
- const roots=["https://live.nicovideo.jp/","https://blog.nicovideo.jp/niconews/"];
+ const roots=["https://koken.nicovideo.jp/campaign","https://live.nicovideo.jp/","https://blog.nicovideo.jp/niconews/"];
  for(const x of String(configured||"").split(/[\s,;]+/).map(v=>cfNicoEventLink121(v)).filter(Boolean).slice(0,4))add(x);
- await Promise.all(roots.map(async u=>{const raw=await get(u);if(raw!=null){const list=cfNicoEventLinks121(raw,false,u);for(const x of list)add(x);diagnostics.push({source:new URL(u).hostname,count:list.length});}}));
+ const rootLists=await Promise.all(roots.map(async u=>{const raw=await get(u);if(raw==null)return [];const list=u==="https://koken.nicovideo.jp/campaign"?campaignCatalogLinks123(raw,u,cfNicoEventLink121,clean):cfNicoEventLinks121(raw,false,u);diagnostics.push({source:new URL(u).hostname,count:list.length});return list;}));for(const list of rootLists)for(const x of list)add(x);
  for(const x of items.values())if(x.type==="ranking")put(x,x.title);
  const checked=new Set();
  async function inspect(x){checked.add(x.url);const raw=await get(x.url);if(raw==null){put(x,x.title);return;}const title=clean(raw.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1],150)||x.title||"";
@@ -2544,7 +2575,7 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request,ctx,env);
  if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
  if(url.pathname==="/home-ranking")return request.method==="GET"||request.method==="HEAD"?new Response(null,{status:302,headers:{location:"/api/ranking-page","cache-control":"no-store"}}):json({status:"error"},405);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r122",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r123",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}

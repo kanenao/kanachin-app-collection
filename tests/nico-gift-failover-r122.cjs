@@ -13,7 +13,7 @@ assert.equal(f.homeGiftPrimary122({status:"partial",checkedAt:iso(now),events:[{
 assert.equal(f.cloudGiftFallback122(result(now-901000,88),now).events[0].rows.length,0);
 assert.equal(f.cloudGiftFallback122(result(now,88),now).events[0].rows[0].points,88);
 assert.equal(f.cloudGiftFallback122(null,now).sourceMode,"cloudflare");
-assert.ok(h.includes("自宅サーバー（通常運用）"));assert.ok(h.includes("Cloudflare（代替運用）"));
+assert.ok(h.includes("自宅サーバー（通常運用）"));assert.ok(h.includes("代替取得中"));
 (async()=>{
  let t=now,online=true,reads=0,collections=0;const state=new Map(),tasks=[];
  const hub={env:{},ctx:{storage:{get:async k=>state.get(k),put:async(k,v)=>{state.set(k,v);}},waitUntil:p=>tasks.push(p)}};
