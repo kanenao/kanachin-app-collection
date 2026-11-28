@@ -27,7 +27,7 @@ jobs:
           node - <<'NODE'
           const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
           const root='/tmp/live-ranking-server-v0.4.7',u=require(root+'/updater.cjs');
-          const file=process.cwd()+'/live-ranking-updates/v0.5.14.json';
+          const file=process.cwd()+'/live-ranking-updates/v0.5.15.json';
           const raw=fs.readFileSync(file),v=JSON.parse(raw).version,m={schema:1,channel:'stable',version:v,bundle:'v'+v+'.json',sha256:u.sha(raw)};
           const dir=path.join(root,'.updates','stage-ci');fs.mkdirSync(dir,{recursive:true});
           for(const [k,s] of Object.entries(u.unpack(raw,u.manifest(m))))fs.writeFileSync(path.join(dir,k),s);
