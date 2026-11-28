@@ -2344,7 +2344,7 @@ function cfNicoEventLink121(raw,base=""){
  const final=m[1].split("&").includes("fixed_result=true");
  return {type:"ranking",key:k+(final?":final":""),url:"https://audition.nicovideo.jp/embedded/ranking?key="+k+"&max_item_size=25&fixed_result="+final,final};
 }
-function cfNicoEventLink121s(raw,article=false,base="https://live.nicovideo.jp/"){
+function cfNicoEventLinks121(raw,article=false,base="https://live.nicovideo.jp/"){
  const map=new Map(),html=String(raw||"").slice(0,2*1024*1024);
  const gift=(s)=>/ギフト|ギフオーディション|giftevent|kohaku/i.test(s);
  function add(v,title=""){
@@ -2429,9 +2429,9 @@ async function cfChannelIconResponse121(request){
  try{const hit=await caches.default.match(key);if(hit)return hit;}catch{}
  let channel=ch,explicit=[],image=null;
  try{if(!channel){const found=cfWatchChannel121(await cfNicoPublicRead121("https://live.nicovideo.jp/watch/"+id,6291456),id);channel=found.channelId;explicit=found.icons;}
- if(channel){const channelKey=new Request(url.origin+"/__cache/nico-channel-icon-r121/ch"+channel);try{const hit=await caches.default.match(channelKey);if(hit&&hit.ok)return hit;}catch{}
+ if(channel){const channelKey=new Request(url.origin+"/__cache/nico-channel-icon-r121/ch"+channel);try{const hit=await caches.default.match(channelKey);if(hit&&hit.ok){try{await caches.default.put(key,hit.clone());}catch{}return hit;}}catch{}
  for(const candidate of cfChannelIconCandidates121(channel,explicit)){try{const r=await fetch(candidate,{redirect:"manual",signal:AbortSignal.timeout(4000),headers:{accept:"image/jpeg,image/png,image/webp",referer:"https://ch.nicovideo.jp/"}});if(r.status===429){await r.body?.cancel();break;}image=await readHomeImage(r);if(image)break;}catch{}}
- if(image){const result=new Response(image.bytes,{headers:{...headers,"content-type":image.type,"cache-control":"public, max-age=21600"}});try{await caches.default.put(channelKey,result.clone());}catch{}return result;}}
+ if(image){const result=new Response(image.bytes,{headers:{...headers,"content-type":image.type,"cache-control":"public, max-age=21600"}});try{await caches.default.put(channelKey,result.clone());if(id)await caches.default.put(key,result.clone());}catch{}return result;}}
  }catch{}
  const result=new Response(null,{status:404,headers:{...headers,"cache-control":"public, max-age=300"}});try{await caches.default.put(key,result.clone());}catch{}return result;
 }
@@ -2442,11 +2442,11 @@ async function cfCollectGiftEvents121(read,configured="",previous=null,now=Date.
  const put=(x,title)=>{if(!found.has(x.url))found.set(x.url,{...x,key:x.key||x.url,title:title||x.title||"公式ギフトイベント"});};
  const roots=["https://live.nicovideo.jp/","https://blog.nicovideo.jp/niconews/"];
  for(const x of String(configured||"").split(/[\s,;]+/).map(v=>cfNicoEventLink121(v)).filter(Boolean).slice(0,4))add(x);
- await Promise.all(roots.map(async u=>{const raw=await get(u);if(raw!=null){const list=cfNicoEventLinks(raw,false,u);for(const x of list)add(x);diagnostics.push({source:new URL(u).hostname,count:list.length});}}));
+ await Promise.all(roots.map(async u=>{const raw=await get(u);if(raw!=null){const list=cfNicoEventLinks121(raw,false,u);for(const x of list)add(x);diagnostics.push({source:new URL(u).hostname,count:list.length});}}));
  for(const x of items.values())if(x.type==="ranking")put(x,x.title);
  const checked=new Set();
  async function inspect(x){checked.add(x.url);const raw=await get(x.url);if(raw==null){put(x,x.title);return;}const title=clean(raw.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1],150)||x.title||"";
- const links=cfNicoEventLinks(raw,true,x.url),ranks=links.filter(y=>y.type==="ranking");for(const r of ranks)put(r,title);for(const y of links.filter(y=>y.type==="campaign"))add(y);if(!ranks.length)put(x,title);}
+ const links=cfNicoEventLinks121(raw,true,x.url),ranks=links.filter(y=>y.type==="ranking");for(const r of ranks)put(r,title);for(const y of links.filter(y=>y.type==="campaign"))add(y);if(!ranks.length)put(x,title);}
  await Promise.all([...items.values()].filter(x=>x.type!=="ranking").slice(0,4).map(inspect));
  await Promise.all([...items.values()].filter(x=>x.type==="campaign"&&!checked.has(x.url)).slice(0,2).map(inspect));
  const ranked=[...found.values()].filter(x=>x.type==="ranking").slice(0,4);
@@ -2459,16 +2459,6 @@ async function cfCollectGiftEvents121(read,configured="",previous=null,now=Date.
 async function cfGiftEvents121(request,ctx){
  if(request.method!=="GET")return json({status:"error"},405);
  try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("nico-official-gift-events-v1")).fetch("https://internal/nico-official-gift-data");}catch{return json({status:"unavailable",events:[],source:"Cloudflare"},200,"no-store");}
-}
-
-async function homeGiftEventResponse120(request){
- if(request.method!=="GET")return json({status:"error"},405);
- const key=new Request(new URL("/__cache/home-nico-events-r120",request.url));
- try{const hit=await caches.default.match(key);if(hit)return json(await hit.json());}catch{}
- let result={status:"unavailable",events:[],checkedAt:null};
- try{const raw=JSON.parse(await fetchBounded(HOME_RANKING_ORIGIN+"/api/nico-gift-events",{headers:{accept:"application/json"}},524288));result=safeHomeGiftEvents120(raw);}catch{}
- try{await caches.default.put(key,json(result,200,"public, max-age=60"));}catch{}
- return json(result);
 }
 
 async function enhancedHomeRanking(request,ctx,env){
@@ -2726,7 +2716,7 @@ export class RankingLiveHub extends DurableObject{
  }
  async fetch(request){
   const internal=new URL(request.url);
-  if(internal.hostname==="internal"&&internal.pathname==="/nico-official-gift-data"&&request.method==="GET"){const state=await this.ctx.storage.get("nico-gift-state");return json(state||{status:"pending",events:[],source:"Cloudflare・初回取得待ち"},200,"no-store");}
+  if(internal.hostname==="internal"&&internal.pathname==="/nico-official-gift-data"&&request.method==="GET"){const state=await this.ctx.storage.get("nico-gift-state");const fresh=state&&Date.now()-Date.parse(state.checkedAt)<=900000;return json(fresh?state:state?{...state,status:"unavailable",events:state.events.map(e=>({...e,status:"link-only",rows:[],fetchedAt:null}))}:{status:"pending",events:[],source:"Cloudflare・初回取得待ち"},200,"no-store");}
   if(internal.hostname==="internal"&&internal.pathname==="/nico-official-gift-warm"&&request.method==="POST"){
    const now=Date.now(),next=await this.ctx.storage.get("nico-gift-next");if(this.nicoGiftBusy121||Number(next)>now)return new Response(null,{status:204});
    this.nicoGiftBusy121=true;try{await this.ctx.storage.put("nico-gift-next",now+300000);const previous=await this.ctx.storage.get("nico-gift-state");const state=await cfCollectGiftEvents121(cfNicoPublicRead121,this.env.NICO_GIFT_EVENT_URLS||"",previous,now);await this.ctx.storage.put("nico-gift-state",state);}finally{this.nicoGiftBusy121=false;}return new Response(null,{status:204});
