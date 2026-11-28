@@ -1,0 +1,23 @@
+name: Home ranking parity validation
+on:
+  pull_request:
+    paths:
+      - 'worker.js'
+      - 'rankings/index.html'
+      - 'tests/home-ranking-parity-r126.cjs'
+      - '.github/workflows/home-ranking-parity-r126.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --input-type=module --check < worker.js
+      - run: node tests/home-ranking-parity-r126.cjs
+      - run: node tests/cloudflare-nico-r121.cjs
+      - run: node tests/home-enhanced-r120.cjs
+      - run: node tests/nico-gift-failover-r122.cjs
