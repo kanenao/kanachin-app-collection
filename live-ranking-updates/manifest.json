@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "channel": "stable",
-  "version": "0.5.19",
-  "bundle": "v0.5.19.json",
-  "sha256": "dacb203488bea7ba7ba1fb0745e6a5d377fdef43a9adcbc83ac306160463ef34"
+  "version": "0.5.20",
+  "bundle": "v0.5.20.json",
+  "sha256": "6a5079b73f026bb42214ceb708486eeb0d3ad6fa45f27560ef75c6c5f2ac0e95"
 }
