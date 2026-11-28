@@ -1052,6 +1052,15 @@ function directNicoText(v,max=250){return typeof v==="string"?v.replace(/<[^>]*>
 function directNicoId(v){if(typeof v!=="string")return "";return /^(lv\d{5,15})$/i.exec(v)?.[1].toLowerCase()||/^(?:https:\/\/live\.nicovideo\.jp)?\/watch\/(lv\d{5,15})\/?(?:[?#][^\s]*)?$/i.exec(v)?.[1].toLowerCase()||"";}
 function directNicoCount(...xs){for(const x of xs){if(typeof x==="number"&&Number.isSafeInteger(x)&&x>=0)return x;if(typeof x==="string"&&/^\d{1,12}$/.test(x))return Number(x);}return null;}
 function directNicoImage(v){return typeof v==="string"&&v.length<2048&&/^https:\/\/(?:[a-z0-9-]+\.)*(?:nimg\.jp|simg\.jp|dlive\.nicovideo\.jp)\/[^\s<>\\]+$/i.test(v)&&!/avatar|profile|user[-_]?icon|channel[-_]?icon|logo|placeholder/i.test(v)?v:"";}
+function directNicoWrappedProgram(x){
+ const nested=x?.program??x?.liveProgram??x?.contentMeta?.program??x?.contentMeta;
+ if(!nested||typeof nested!=="object"||Array.isArray(nested))return x;
+ const outer=directNicoId(x.nicoliveProgramId??x.liveId??x.programId??x.contentId??x.id?.value??x.id??x.watchPageUrl??x.watchUrl);
+ const inner=directNicoId(nested.nicoliveProgramId??nested.liveId??nested.programId??nested.contentId??nested.id?.value??nested.id??nested.watchPageUrl??nested.watchUrl);
+ if(outer&&inner&&outer!==inner)return null;
+ if(!outer&&!inner)return x;
+ return {...nested,nicoliveProgramId:inner||outer,supplier:nested.supplier??nested.programProvider??nested.provider??x.supplier??x.programProvider??x.provider,statistics:nested.statistics??nested.stats??x.statistics??x.stats,isOnAir:nested.isOnAir??x.isOnAir};
+}
 function directNicoProgram(p){
  if(!p||typeof p!=="object"||Array.isArray(p))return null;
  const id=directNicoId(p.nicoliveProgramId??p.liveId??p.programId??p.contentId??p.id?.value??p.id??p.watchPageUrl??p.watchUrl);
@@ -1078,13 +1087,13 @@ function directNicoPayloads(raw){
 function directNicoList(raw){
  const known=new Map(),rejected=new Set();let visited=0;
  function put(row){if(!row)return;const old=known.get(row.id);if(!old||(!old.confirmed&&row.confirmed))known.set(row.id,row);else if(old.confirmed===row.confirmed){for(const k of ["name","profileUrl","userId","channelId","providerKind","startedAt","visitors","comments","advertising","gift","thumbnail"])if((old[k]==null||old[k]==="")&&row[k]!=null&&row[k]!=="")old[k]=row[k];}}
- function walk(x,d){if(d>16||++visited>20000||!x||typeof x!=="object"||known.size>=250)return;if(Array.isArray(x)){for(const y of x)walk(y,d+1);return;}const status=String(x.schedule?.status??x.liveStatus??x.broadcastStatus??x.status??"").toUpperCase().replace(/[-_ ]/g,""),id=directNicoId(x.nicoliveProgramId??x.liveId??x.programId??x.contentId??x.id?.value??x.id);if(id&&(x.isOnAir===false||["ENDED","PAST","RESERVED","FINISHED","NOTSTARTED","CLOSED"].includes(status)))rejected.add(id);put(directNicoProgram(x));for(const k of Object.keys(x))if(!["__proto__","constructor","prototype"].includes(k))walk(x[k],d+1);}
+ function walk(x,d){if(d>16||++visited>20000||!x||typeof x!=="object"||known.size>=250)return;if(Array.isArray(x)){for(const y of x)walk(y,d+1);return;}const p=directNicoWrappedProgram(x);const status=String(p?.schedule?.status??p?.liveStatus??p?.broadcastStatus??p?.status??"").toUpperCase().replace(/[-_ ]/g,""),id=directNicoId(p?.nicoliveProgramId??p?.liveId??p?.programId??p?.contentId??p?.id?.value??p?.id);if(id&&(p?.isOnAir===false||["ENDED","PAST","RESERVED","FINISHED","NOTSTARTED","CLOSED"].includes(status)))rejected.add(id);put(directNicoProgram(p));for(const k of Object.keys(x))if(!["__proto__","constructor","prototype"].includes(k))walk(x[k],d+1);}
  for(const p of directNicoPayloads(raw))walk(p,0);
  if(typeof raw==="string"&&known.size<250){const safe=raw.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,"");for(const m of safe.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){const id=directNicoId(m[1].match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2]);if(!id||known.has(id))continue;const title=directNicoText(m[1].match(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/i)?.[2]||m[2]);if(!title||/^(視聴|見る|開く|放送ページ|LIVE|lv\d+)$/i.test(title))continue;known.set(id,{id,title,confirmed:false});if(known.size>=250)break;}
  for(const [item] of safe.matchAll(/<item\b[^>]*>[\s\S]*?<\/item>/gi)){const val=k=>item.match(new RegExp("<"+k+"(?:\\s[^>]*)?>([\\s\\S]*?)</"+k+"\\s*>","i"))?.[1]?.replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/,"$1").trim()||"";const id=directNicoId(val("link")),title=directNicoText(val("title")),status=val("liveStatus")||val("status");if(!id||!title||known.has(id)||status&&!/^(?:ON_AIR|ONAIR|LIVE|ON AIR)$/i.test(status))continue;known.set(id,{id,title,confirmed:false});if(known.size>=250)break;}}
  return [...known.values()].filter(r=>!rejected.has(r.id));
 }
-function directNicoWatch(raw,id){for(const payload of directNicoPayloads(raw)){const p=payload?.program??payload?.data?.program;const r=directNicoProgram(p);if(r?.id===id&&r.confirmed)return r;}return null;}
+function directNicoWatch(raw,id){for(const payload of directNicoPayloads(raw)){const p=directNicoWrappedProgram(payload?.data?.program?payload.data:payload);const r=directNicoProgram(p);if(r?.id===id&&r.confirmed)return r;}return null;}
 async function collectDirectNico(read,limit=10,watchLimit=3,offset=0){
  const urls=[["公式ランキング","https://live.nicovideo.jp/ranking"],["公式おすすめ一覧","https://live.nicovideo.jp/front/api/v1/recommend-contents?recipe=live_top_guest&v=2&site=nicolive&content_meta=true&frontend_id=9"],["公式RSS","https://live.nicovideo.jp/recent/rss?tab=live"]];
  const rows=new Map(),pending=new Map(),diagnostics=[];let pause=0;
@@ -2104,12 +2113,12 @@ function homeRankingPayload(d){
  return d?.server==="LIVE Ranking Server"&&typeof d.mode==="string"&&/^(?:hybrid-v\d+\.\d+\.\d+|live-bridge)$/.test(d.mode)&&["OK","partial","pending"].includes(d.status)?"online":"offline";
 }
 function homeRankingReady(d,now=Date.now()){
- if(homeRankingPayload(d)!=="online"||!["OK","partial"].includes(d.status))return false;
+ if(homeRankingPayload(d)!=="online"||!["OK","partial"].includes(d.status)||d.niconicoSource!=="ニコニコ生放送・公式直接取得")return false;
  const fresh=(v,max)=>{const age=now-Date.parse(v);return Number.isFinite(age)&&age>=-30000&&age<=max;};
  return fresh(d.updatedAt,45000)&&["niconico","kick"].every((kind)=>d[kind+"Stale"]===false&&Number.isSafeInteger(d[kind])&&d[kind]>0&&d[kind]<=(kind==="niconico"?100:50)&&fresh(d[kind+"FetchedAt"],240000));
 }
 async function homeRankingStatus(request){
- const key=new Request(new URL("/__cache/home-ranking-health-r116",request.url));
+ const key=new Request(new URL("/__cache/home-ranking-health-r118",request.url));
  try{const hit=await caches.default.match(key);if(hit){const saved=await hit.json();if(["online","offline"].includes(saved.status)&&typeof saved.rankingReady==="boolean"&&Number.isFinite(saved.checkedAt)&&Date.now()-saved.checkedAt>=0&&Date.now()-saved.checkedAt<20000)return saved;}}catch{}
  let status="offline",rankingReady=false;
  try{
@@ -2135,6 +2144,7 @@ function enhancedHomeFrames(d,now=Date.now()){
  const num=v=>Number.isSafeInteger(v)&&v>=0?v:null;
  const text=(v,n=250)=>typeof v==="string"?v.slice(0,n):"";
  for(const [type,kind] of [["nico","niconico"],["kick","kick"]]){
+  if(type==="nico"&&d.niconicoSource!=="ニコニコ生放送・公式直接取得")continue;
   const at=Date.parse(d[kind+"FetchedAt"]);if(!Number.isFinite(at)||at>now+30000||now-at>240000||d[kind+"Stale"]!==false||!Array.isArray(d[kind]))continue;
   const used=Array.isArray(d[kind+"ScoreMetrics"])?d[kind+"ScoreMetrics"].filter(k=>["momentum","active10m","visitors","comments","advertising","gift","viewers","activeUsers","receivedComments"].includes(k)):[];const total=type==="nico"?6:3;
   const seen=new Set();const entries=[];
@@ -2306,7 +2316,7 @@ async function homeThumbnailResponse(request){
 
 async function enhancedHomeRanking(request,ctx,env){
  if(request.method!=="GET")return json({status:"error"},405);
- const key=new Request(new URL("/__cache/home-ranking-data-r115",request.url));
+ const key=new Request(new URL("/__cache/home-ranking-data-r118",request.url));
  try{const cached=await caches.default.match(key);if(cached)return json(await cached.json());}catch{}
  let result={status:"unavailable",frames:{},checkedAt:Date.now()};
  try{
