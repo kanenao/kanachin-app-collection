@@ -2027,7 +2027,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r123</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r124</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -2096,7 +2096,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r123"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r124"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -2317,6 +2317,7 @@ async function homeThumbnailResponse(request){
 
 
 function officialEventUrl120(value){
+ const campaign=campaignType124(value);if(campaign)return campaign.url;
  try{const u=new URL(value);if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash)return "";if(u.hostname==="audition.nicovideo.jp"&&u.pathname==="/embedded/ranking"&&/^[a-z0-9_-]{2,101}$/i.test(u.searchParams.get("key")||""))return u.href;if(u.hostname==="blog.nicovideo.jp"&&/^\/niconews\/\d{1,12}(?:\.html)?\/?$/.test(u.pathname))return u.href;if(u.hostname==="koken.nicovideo.jp"&&/^\/campaign\/event\/[a-z0-9_-]{2,101}\/?$/i.test(u.pathname))return u.href;}catch{}return "";
 }
 function safeHomeGiftEvents120(raw){
@@ -2324,10 +2325,21 @@ function safeHomeGiftEvents120(raw){
  if(!raw||!Array.isArray(raw.events))return {status:"unavailable",events:[],checkedAt:null};
  const events=[];
  for(const e of raw.events.slice(0,8)){const url=officialEventUrl120(e?.url);if(!url)continue;
- const rows=(Array.isArray(e.rows)&&e.status==="ok"?e.rows:[]).slice(0,25).filter(r=>Number.isSafeInteger(r?.rank)&&r.rank>0&&r.rank<=100000&&Number.isSafeInteger(r.points)&&r.points>=0&&/^[1-9]\d{0,14}$/.test(String(r.userId||""))).map(r=>({rank:r.rank,points:r.points,userId:String(r.userId),name:str(r.name,100)}));
- events.push({key:str(e.key,150)||url,title:str(e.title,180)||"公式ギフトイベント",url,final:e.final===true,status:e.status==="ok"&&rows.length?"ok":e.status==="link-only"?"link-only":"unparsed",fetchedAt:time(e.fetchedAt),rows});
+ const category=campaignType124(url)?.type||"ranking";
+ const rows=(Array.isArray(e.rows)&&e.status==="ok"&&category==="ranking"?e.rows:[]).slice(0,25).filter(r=>Number.isSafeInteger(r?.rank)&&r.rank>0&&r.rank<=100000&&Number.isSafeInteger(r.points)&&r.points>=0&&/^[1-9]\d{0,14}$/.test(String(r.userId||""))).map(r=>({rank:r.rank,points:r.points,userId:String(r.userId),name:str(r.name,100)}));
+ events.push({key:str(e.key,150)||url,title:str(e.title,180)||"公式イベント",url,category,final:e.final===true,status:e.status==="ok"&&rows.length?"ok":e.status==="link-only"||["ad-campaign","free-gift"].includes(category)?"link-only":"unparsed",fetchedAt:rows.length?time(e.fetchedAt):null,rows});
  }
  return {status:events.some(e=>e.status==="ok")?"ok":events.length?"partial":"pending",checkedAt:time(raw.checkedAt),events};
+}
+
+
+function campaignType124(raw){
+ try{const u=new URL(raw);if(u.protocol!=="https:"||u.hostname!=="koken.nicovideo.jp"||u.username||u.password||u.port||u.hash)return null;
+ const m=/^\/campaign\/(event|play)\/([a-z0-9][a-z0-9_-]{1,100})\/?$/i.exec(u.pathname);if(!m)return null;
+ const slug=m[2],free=m[1]==="play";
+ if(free&&(!/^free_[a-z0-9][a-z0-9_-]{1,95}$/i.test(slug)||!/giftevent|kohaku/i.test(slug)))return null;
+ return {type:free?"free-gift":/nicoadevent/i.test(slug)?"ad-campaign":"campaign",key:slug,url:u.origin+"/campaign/"+m[1]+"/"+slug};
+ }catch{return null;}
 }
 
 function campaignCatalogLinks123(raw,base,parse,cleanText){
@@ -2336,11 +2348,11 @@ function campaignCatalogLinks123(raw,base,parse,cleanText){
  function add(value,label=""){
   if(typeof value!=="string")return;
   let url;try{url=new URL(value.replace(/&amp;|&#38;|&#x26;/gi,"&").replace(/\\u0026/gi,"&").replace(/\\\//g,"/"),base);}catch{return;}
-  if(url.protocol!=="https:"||url.hostname!=="koken.nicovideo.jp"||url.username||url.password||url.port||!/^\/campaign\/event\/[a-z0-9][a-z0-9_-]{1,100}\/?$/i.test(url.pathname))return;
-  const link=parse(url.origin+url.pathname);if(!link||link.type!=="campaign")return;
+  if(url.protocol!=="https:"||url.hostname!=="koken.nicovideo.jp"||url.username||url.password||url.port)return;
+  const link=parse(url.origin+url.pathname);if(!link||!["campaign","free-gift","ad-campaign"].includes(link.type))return;
   const title=cleanText(label,150);
   // The catalog includes non-gift campaigns. Only explicitly labeled gift events or known gift keys.
-  if(!gift.test(title+" "+link.key))return;
+  if(link.type==="campaign"&&!gift.test(title+" "+link.key))return;
   const old=map.get(link.url);if(!old||(!old.title&&title))map.set(link.url,{...link,title:title||link.key});
  }
  for(const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){
@@ -2367,8 +2379,7 @@ function cfNicoEventLink121(raw,base=""){
  if(s.startsWith("//"))s="https:"+s;
  if(s.startsWith("/")&&/^https:\/\/(?:blog|live|koken|audition)\.nicovideo\.jp(?:\/|$)/.test(base))s=base.match(/^https:\/\/[^/]+/)[0]+s;
  if(/^https:\/\/blog\.nicovideo\.jp\/niconews\/\d{1,12}(?:\.html)?\/?(?:[?#][^ ]*)?$/.test(s))return {type:"article",url:s.split(/[?#]/)[0].replace(/\/$/,"")};
- const c=/^https:\/\/koken\.nicovideo\.jp\/campaign\/event\/([a-z0-9][a-z0-9_-]{1,100})\/?(?:[?#][^ ]*)?$/i.exec(s);
- if(c)return {type:"campaign",key:c[1],url:"https://koken.nicovideo.jp/campaign/event/"+c[1]};
+ const c=campaignType124(s);if(c)return c;
  const m=/^https:\/\/audition\.nicovideo\.jp\/embedded\/ranking\?([^#\s"'<>]+)(?:#.*)?$/.exec(s);if(!m)return null;
  const keys=m[1].split("&").filter(v=>v.startsWith("key="));if(keys.length!==1)return null;
  const k=keys[0].slice(4);if(!/^[a-z0-9][a-z0-9_-]{1,100}$/i.test(k))return null;
@@ -2380,7 +2391,7 @@ function cfNicoEventLinks121(raw,article=false,base="https://live.nicovideo.jp/"
  const gift=(s)=>/ギフト|ギフオーディション|giftevent|kohaku/i.test(s);
  function add(v,title=""){
   const link=cfNicoEventLink121(v,base);if(!link)return;
-  if(!article&&!gift(title+" "+(link.key||"")))return;
+  if(!article&&!["free-gift","ad-campaign"].includes(link.type)&&!gift(title+" "+(link.key||"")))return;
   if(link.type==="article"&&article)return;
   const old=map.get(link.url);
   if(!old||(!old.title&&title))map.set(link.url,{...link,title:title||link.key||"ギフトイベント"});
@@ -2474,11 +2485,11 @@ async function cfCollectGiftEvents121(read,configured="",previous=null,now=Date.
  const roots=["https://koken.nicovideo.jp/campaign","https://live.nicovideo.jp/","https://blog.nicovideo.jp/niconews/"];
  for(const x of String(configured||"").split(/[\s,;]+/).map(v=>cfNicoEventLink121(v)).filter(Boolean).slice(0,4))add(x);
  const rootLists=await Promise.all(roots.map(async u=>{const raw=await get(u);if(raw==null)return [];const list=u==="https://koken.nicovideo.jp/campaign"?campaignCatalogLinks123(raw,u,cfNicoEventLink121,clean):cfNicoEventLinks121(raw,false,u);diagnostics.push({source:new URL(u).hostname,count:list.length});return list;}));for(const list of rootLists)for(const x of list)add(x);
- for(const x of items.values())if(x.type==="ranking")put(x,x.title);
+ for(const x of items.values())if(["ranking","free-gift","ad-campaign"].includes(x.type))put(x,x.title);
  const checked=new Set();
  async function inspect(x){checked.add(x.url);const raw=await get(x.url);if(raw==null){put(x,x.title);return;}const title=clean(raw.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1],150)||x.title||"";
  const links=cfNicoEventLinks121(raw,true,x.url),ranks=links.filter(y=>y.type==="ranking");for(const r of ranks)put(r,title);for(const y of links.filter(y=>y.type==="campaign"))add(y);if(!ranks.length)put(x,title);}
- await Promise.all([...items.values()].filter(x=>x.type!=="ranking").slice(0,4).map(inspect));
+ await Promise.all([...items.values()].filter(x=>["article","campaign"].includes(x.type)).slice(0,4).map(inspect));
  await Promise.all([...items.values()].filter(x=>x.type==="campaign"&&!checked.has(x.url)).slice(0,2).map(inspect));
  const ranked=[...found.values()].filter(x=>x.type==="ranking").slice(0,4);
  const events=await Promise.all(ranked.map(async x=>{const raw=await get(x.url),rows=raw==null?[]:cfNicoEventRows121(raw);return {...x,status:rows.length?"ok":"unparsed",rows,fetchedAt:rows.length?new Date(now).toISOString():null};}));
@@ -2575,7 +2586,7 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request,ctx,env);
  if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
  if(url.pathname==="/home-ranking")return request.method==="GET"||request.method==="HEAD"?new Response(null,{status:302,headers:{location:"/api/ranking-page","cache-control":"no-store"}}):json({status:"error"},405);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r123",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r124",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}
