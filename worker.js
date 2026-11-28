@@ -2340,7 +2340,7 @@ function campaignCatalogLinks123(raw,base,parse,cleanText){
   const link=parse(url.origin+url.pathname);if(!link||link.type!=="campaign")return;
   const title=cleanText(label,150);
   // The catalog includes non-gift campaigns. Only explicitly labeled gift events or known gift keys.
-  if(!gift(title+" "+link.key))return;
+  if(!gift.test(title+" "+link.key))return;
   const old=map.get(link.url);if(!old||(!old.title&&title))map.set(link.url,{...link,title:title||link.key});
  }
  for(const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)){
