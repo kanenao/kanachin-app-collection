@@ -27,14 +27,15 @@ jobs:
           node - <<'NODE'
           const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
           const root='/tmp/live-ranking-server-v0.4.7',u=require(root+'/updater.cjs');
-          const file=process.cwd()+'/live-ranking-updates/v0.5.10-candidate.json';
+          const file=process.cwd()+'/live-ranking-updates/v0.5.11.json';
           const raw=fs.readFileSync(file),v=JSON.parse(raw).version,m={schema:1,channel:'stable',version:v,bundle:'v'+v+'.json',sha256:u.sha(raw)};
           const dir=path.join(root,'.updates','stage-ci');fs.mkdirSync(dir,{recursive:true});
           for(const [k,s] of Object.entries(u.unpack(raw,u.manifest(m))))fs.writeFileSync(path.join(dir,k),s);
-          for(const f of u.TESTS){
+          const failures=[];for(const f of u.TESTS){
             const r=spawnSync(process.execPath,[path.join(dir,f)],{cwd:dir,env:{...process.env,RANKING_DATA_DIR:'/tmp/home-ci-data'},stdio:'inherit',timeout:20000});
-            assert.equal(r.status,0,f);
+            if(r.status!==0)failures.push(f);
           }
-          u.testFiles(dir);
+          assert.deepEqual(failures,[]);u.testFiles(dir);
           console.log('Original updater offline validation passed');
+          (async()=>{const {spawn}=require('node:child_process'),p=spawn(process.execPath,[path.join(dir,'server.cjs')],{env:{...process.env,RANKING_OFFLINE_TEST:'1',RANKING_PORT:'31991',RANKING_DATA_DIR:'/tmp/home-ci-health'},stdio:'inherit'});try{let health;for(let i=0;i<25;i++){try{health=await(await fetch('http://127.0.0.1:31991/health')).json();break}catch{await new Promise(r=>setTimeout(r,200))}}assert.equal(health?.mode,'hybrid-v'+v);const html=await(await fetch('http://127.0.0.1:31991/dashboard')).text();assert.ok(html.includes('nico-gift-events'));assert.ok(html.includes('r.providerKind'));for(const match of html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi))new Function(match[1]);assert.equal((await(await fetch('http://127.0.0.1:31991/api/rankings/compact')).json()).mode,'hybrid-v'+v);assert.ok(Array.isArray((await(await fetch('http://127.0.0.1:31991/api/nico-gift-events')).json()).events));console.log('Offline server health, dashboard, compact and event endpoint passed');}finally{p.kill();}})().catch(e=>{console.error(e);process.exitCode=1;});
           NODE
