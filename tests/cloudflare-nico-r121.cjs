@@ -41,3 +41,15 @@ for(const m of h.matchAll(/<script[^>]*>([^]*?)<[/]script>/gi))new Function(m[1]
  assert.ok(h.includes('href="https://koken.nicovideo.jp/campaign"'));assert.ok(!h.includes("Cloudflareで公式"));
  console.log("r123 official campaign catalog fixture and public wording passed");
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+;(async()=>{
+ const root="https://koken.nicovideo.jp/campaign",ad=root+"/event/202611-nicoadevent-christmasbanner",free=root+"/play/free_202611-kohaku-shiro",calls=[];
+ const state=await f.cfCollectGiftEvents121(async u=>{calls.push(u);return u===root?'<a href="'+ad+'?conductorId=29386&frameMasterId=54">広告イベント</a><a href="'+free+'?conductorId=29124&frameMasterId=57">無料ギフト</a>':'';},"",null,Date.now());
+ assert.ok(state.events.some(x=>x.category==="ad-campaign"&&x.url===ad));
+ assert.ok(state.events.some(x=>x.category==="free-gift"&&x.url===free));
+ assert.ok(!calls.includes(free)&&!calls.includes(ad));
+ assert.ok(state.events.every(x=>x.status==="link-only"&&!x.rows.length));
+ assert.ok(h.includes("conductorId=29386&amp;frameMasterId=54"));
+ assert.ok(h.includes("conductorId=29174&amp;frameMasterId=57"));
+ console.log("r124 official ad/free gift links separate from ranking; no automated claim passed");
+})().catch(e=>{console.error(e);process.exitCode=1;});
