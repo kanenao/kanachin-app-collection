@@ -475,7 +475,7 @@ async function fetchBounded(url,options={},max=MAX_BYTES){
   const location=response.headers.get("location");if(!location)throw Error("HTTP "+response.status);
   const next=new URL(location,target);
   const publicHosts=["www.chikuwachan.com","chikuwachan.com","nico-ran.stream","www.nicoran.stream","live.nicovideo.jp","ikioi-ranking.com","www.ikioi-ranking.com"];
-  if(options.method==="POST"||options.headers?.authorization||next.protocol!=="https:"||next.username||next.password||next.port||!publicHosts.includes(next.hostname)||!publicHosts.includes(target.hostname))throw Error("HTTP "+response.status);
+  if((target.hostname==="live.nicovideo.jp"&&next.hostname!=="live.nicovideo.jp")||options.method==="POST"||options.headers?.authorization||next.protocol!=="https:"||next.username||next.password||next.port||!publicHosts.includes(next.hostname)||!publicHosts.includes(target.hostname))throw Error("HTTP "+response.status);
   if(response.body)await response.body.cancel();target=next;
  }
  if([301,302,303,307,308].includes(response.status))throw Error("HTTP "+response.status);
@@ -1096,9 +1096,11 @@ async function collectDirectNico(read,limit=10,watchLimit=3,offset=0){
 }
 let directNicoPauseUntil=0;
 async function nicoRanking(origin){
+ const pauseKey=new Request(origin+"/__cache/nico-direct-pause-r118");
+ try{const cached=await caches.default.match(pauseKey);if(cached){const value=await cached.json();if(Number.isFinite(value.until))directNicoPauseUntil=Math.max(directNicoPauseUntil,value.until);}}catch{}
  if(Date.now()<directNicoPauseUntil)return {status:"error",message:"ニコ生公式取得制限・再試行待ち",entries:[]};
  const result=await collectDirectNico(url=>fetchBounded(url,{headers:{accept:"text/html,application/json,application/rss+xml"}},2*1024*1024),10,3,Math.floor(Date.now()/60000)*3);
- if(result.pause)directNicoPauseUntil=Date.now()+result.pause;
+ if(result.pause){directNicoPauseUntil=Date.now()+result.pause;try{await caches.default.put(pauseKey,json({until:directNicoPauseUntil},200,"public, max-age="+Math.ceil(result.pause/1000)));}catch{}}
  if(!result.rows.length)return {status:"error",message:"ニコ生公式直接取得失敗（"+result.diagnostics.map(x=>x.source+": "+x.reason).join("／")+"）",entries:[],sourceDiagnostics:result.diagnostics};
  const rows=result.rows.map(r=>({...r,liveId:r.id,thumbnailUrl:r.thumbnail}));
  if(!result.pause)try{await enrichPublicNico(rows,origin);}catch{}
@@ -2490,7 +2492,7 @@ function rankingBudgetNotice(b,idle){
  return null;
 }
 function rankingFrameNotice(kind,frame){
- if(frame?.status!=="ok"||frame.stale)return {code:"source",text:(kind==="nico"?"ニコニコ生放送":"Kick")+"の外部取得先から最新ランキングを取得できません。再取得を試みています。"};
+ if(frame?.status!=="ok"||frame.stale)return {code:"source",text:kind==="nico"?"ニコニコ生放送の公式公開データから最新一覧を取得できません。再取得を試みています。":"Kickの外部取得先から最新ランキングを取得できません。再取得を試みています。"};
  if(kind==="nico"&&frame.fallback===true)return {code:"fallback",text:"ニコニコ生放送の公式直接取得が一部のみ成功しています。確認できた番組で暫定ランキングを表示しています。"};
  if(kind==="kick"&&frame.notice)return {code:"fallback",text:"Kick公式APIから取得できないため、公開ランキングの参考データを表示しています。"};
  return null;
@@ -2578,9 +2580,10 @@ export class RankingLiveHub extends DurableObject{
   try{
    await this.ctx.storage.put({budget:reservation,lastStart:start});
    const saved=await this.ctx.storage.get("snapshot")||{};
-   for(const kind of ["nico","kick"])if(!this.latest.has(kind)&&saved[kind])this.latest.set(kind,saved[kind]);
+   if(this.latest.has("nico")&&this.latest.get("nico")?.directNico!==true){this.latest.delete("nico");this.trends.delete("nico");}
+   for(const kind of ["nico","kick"])if(!this.latest.has(kind)&&saved[kind]&&(kind!=="nico"||saved[kind].directNico===true))this.latest.set(kind,saved[kind]);
    if(!this.stats.size)for(const row of saved.stats||[])this.stats.set(row.id,row);
-   for(const kind of ["nico","kick"])if(!this.trends.has(kind)&&saved.trends?.[kind])this.trends.set(kind,saved.trends[kind]);
+   for(const kind of ["nico","kick"])if(!this.trends.has(kind)&&saved.trends?.[kind]&&(kind!=="nico"||saved.nico?.directNico===true))this.trends.set(kind,saved.trends[kind]);
    this.broadcast("state",{message:"共有データ取得中",paused:false,updating:true,nextAt:null});
    const feed=this.ctx.exports.RankingFeed;
    const receive=async(kind,frame)=>{
@@ -2591,7 +2594,7 @@ export class RankingLiveHub extends DurableObject{
     }else this.broadcast("rank-error",{platform:kind,message:frame.message||(kind==="nico"?"ニコ生":"Kick")+"取得再試行待ち"});
    };
    const nico=async()=>{
-    try{await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));}catch(e){await this.setNotice("nico",rankingFrameNotice("nico",null));const old=this.latest.get("nico");if(old?.entries?.length&&Date.now()-Date.parse(old.fetchedAt)<=900000)this.broadcast("nico",{...old,stale:true});this.broadcast("rank-error",{platform:"nico",message:"ニコ生一覧取得失敗: "+diagnostic(e)});return;}
+    try{await liveReadFrames(await feed.fetch("https://internal/nico"),frame=>receive("nico",frame));}catch(e){await this.setNotice("nico",rankingFrameNotice("nico",null));const old=this.latest.get("nico");if(old?.directNico===true&&old?.entries?.length&&Date.now()-Date.parse(old.fetchedAt)<=900000)this.broadcast("nico",{...old,stale:true});this.broadcast("rank-error",{platform:"nico",message:"ニコ生一覧取得失敗: "+diagnostic(e)});return;}
     const ids=new Set((this.latest.get("nico")?.entries||[]).map(r=>r.id));
     for(const id of this.stats.keys())if(!ids.has(id))this.stats.delete(id);
     await liveReadFrames(await feed.fetch(new Request("https://internal/nico-stats",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({entries:this.latest.get("nico")?.entries||[],fetchedAt:this.latest.get("nico")?.fetchedAt,previousStats:[...this.stats.values()]})})),async frame=>{
