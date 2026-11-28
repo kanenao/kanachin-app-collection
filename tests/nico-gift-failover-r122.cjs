@@ -8,6 +8,7 @@ assert.equal(f.homeGiftPrimary122(result(now,0),now).events[0].rows[0].points,0)
 assert.equal(f.homeGiftPrimary122(result(now-721000,4),now),null);
 assert.equal(f.homeGiftPrimary122({...result(now,4),events:[{...result(now,4).events[0],fetchedAt:iso(now-721000)}]},now),null);
 assert.equal(f.homeGiftPrimary122({status:"pending",checkedAt:iso(now),events:[]},now).sourceMode,"home");
+assert.equal(f.homeGiftPrimary122({status:"pending",checkedAt:iso(now),events:[],error:"公式イベントのリンク未取得"},now),null);
 assert.equal(f.homeGiftPrimary122({status:"pending",checkedAt:iso(now),events:[],diagnostics:[{error:"HTTP 403"}]},now),null);
 assert.equal(f.homeGiftPrimary122({status:"partial",checkedAt:iso(now),events:[{url,status:"error"}]},now),null);
 assert.equal(f.cloudGiftFallback122(result(now-901000,88),now).events[0].rows.length,0);
