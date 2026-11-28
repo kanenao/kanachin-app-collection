@@ -1,7 +1,7 @@
 
 const {readFileSync}=require("node:fs"),assert=require("node:assert/strict");
 const w=readFileSync("worker.js","utf8"),h=readFileSync("rankings/index.html","utf8");
-const gift=new Function(w.slice(w.indexOf("function officialEventUrl120"),w.indexOf("async function homeGiftEventResponse120"))+";return safeHomeGiftEvents120")();
+const gift=new Function(w.slice(w.indexOf("function officialEventUrl120"),w.indexOf("function cfNicoEventLink121"))+";return safeHomeGiftEvents120")();
 const images=new Function(h.slice(h.indexOf("function enhancedNicoImages120"),h.indexOf("let homeGiftNext120"))+";return enhancedNicoImages120")();
 const url="https://audition.nicovideo.jp/embedded/ranking?key=giftevent-test";
 assert.equal(gift({events:[{url,status:"ok",rows:[{rank:1,userId:123,name:"test",points:0}]}]}).events[0].rows[0].points,0);
