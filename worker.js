@@ -2027,7 +2027,7 @@ const KICK_ADMIN_PAGE="<!doctype html><html lang=\"ja\"><head><meta charset=\"ut
 
 const ADMIN_CSP="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 function adminLoginPage(message="",disabled=false,status=200){
- const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r118</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
+ const body='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>管理者ログイン</title><style>*{box-sizing:border-box}body{background:#f1f5fa;color:#182236;font:15px/1.6 system-ui,Meiryo,sans-serif;margin:0}main{width:min(460px,calc(100% - 32px));margin:64px auto;padding:26px;background:white;border:1px solid #dce4ee;border-radius:14px}h1{font-size:24px;margin:0 0 14px}label{display:block;margin:12px 0 5px;font-weight:bold}input,button{font:inherit;width:100%;padding:12px;border:1px solid #b7c5d6;border-radius:8px}button{background:#1859b8;color:white;border:0;margin-top:18px;font-weight:bold;cursor:pointer}button:disabled{opacity:.5;cursor:default}.note{color:#53657a;font-size:13px}.error{color:#a02727}a{color:#1859b8}</style></head><body><main><p class="note">管理者専用 / 更新番号 2026.11.28-r119</p><h1>管理者ログイン</h1><p class="note">Kick API接続を管理するための認証です。</p><p class="error" role="status">'+message+'</p><form method="post" action="/admin/login"><label for="username">ユーザー名</label><input id="username" name="username" value="admin" autocomplete="username" required><label for="password">管理者パスワード</label><input type="password" id="password" name="password" autocomplete="current-password" required minlength="12" maxlength="256"><button type="submit"'+(disabled?' disabled':'')+'>ログイン</button></form><p class="note">Cloudflareに登録した KICK_ADMIN_PASSWORD を入力してください。</p><a href="/">ホームページに戻る</a></main></body></html>';
  return adminResponse(body,status,{"content-type":"text/html; charset=utf-8","content-security-policy":ADMIN_CSP});
 }
 function adminSameOriginPost(origin,site,mode,dest,expected){
@@ -2096,7 +2096,7 @@ function isRankingPagePath(path){
  return ["/rankings","/rankings/","/rankings/index.html","/rankings.html","/embed/rankings","/embed/rankings/","/live-ranking","/live-ranking/","/api/ranking-page"].includes(path);
 }
 function rankingPageResponse(request){
- const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r118"};
+ const headers={"content-type":"text/html; charset=utf-8","cache-control":"no-store, max-age=0","x-content-type-options":"nosniff","x-ranking-page-revision":"2026.11.28-r119"};
  if(!["GET","HEAD"].includes(request.method))return new Response("Method not allowed",{status:405,headers:{allow:"GET, HEAD","cache-control":"no-store"}});
  return new Response(request.method==="HEAD"?null:rankingPageHtml,{status:200,headers});
 }
@@ -2146,12 +2146,13 @@ function enhancedHomeFrames(d,now=Date.now()){
  for(const [type,kind] of [["nico","niconico"],["kick","kick"]]){
   if(type==="nico"&&d.niconicoSource!=="ニコニコ生放送・公式直接取得")continue;
   const at=Date.parse(d[kind+"FetchedAt"]);if(!Number.isFinite(at)||at>now+30000||now-at>240000||d[kind+"Stale"]!==false||!Array.isArray(d[kind]))continue;
-  const used=Array.isArray(d[kind+"ScoreMetrics"])?d[kind+"ScoreMetrics"].filter(k=>["momentum","active10m","visitors","comments","advertising","gift","viewers","activeUsers","receivedComments"].includes(k)):[];const total=type==="nico"?6:3;
+  const used=Array.isArray(d[kind+"ScoreMetrics"])?d[kind+"ScoreMetrics"].filter(k=>["momentum","active10m","visitors","comments","advertising","gift","viewers","activeUsers","receivedComments"].includes(k)):[];const total=type==="nico"?(String(d.scoreMethod||"").startsWith("Nico adaptive")?5:6):3;
   const seen=new Set();const entries=[];
   for(const r of d[kind].slice(0,counts[type])){
    if(!r||typeof r.id!=="string"||!(type==="nico"?/^lv\d{5,15}$/:/^[a-z0-9_-]{1,40}$/).test(r.id)||seen.has(r.id))continue;seen.add(r.id);
    const row={id:r.id,name:text(r.name,100),title:text(r.title),startedAt:text(r.startedAt,50),duration:text(r.duration,40),home:true,rank:entries.length+1,overallUsed:new Set(used).size,overallTotal:total,overallScore:typeof r.momentumScore==="number"&&Number.isFinite(r.momentumScore)&&r.momentumScore>=0&&r.momentumScore<=100?r.momentumScore:null,thumbnail:text(r.thumbnail,2048),thumbnailCandidates:[...(Array.isArray(r.thumbnailCandidates)?r.thumbnailCandidates:[]),...(Array.isArray(r.programThumbnails)?r.programThumbnails:[])].filter(x=>typeof x==="string"&&x.length<=2048).slice(0,8),profileUrl:text(r.profileUrl,300),providerKind:text(r.providerKind,20),channelId:text(r.channelId,20),userId:text(r.userId,20),previousRank:Number.isInteger(r.previousRank)&&r.previousRank>=1&&r.previousRank<=counts[type]?r.previousRank:null};
    row.rankChange=row.previousRank===null?null:row.previousRank-row.rank;
+   if(type==="nico"&&total===5){row.overallUsed=Number.isInteger(r.scoreUsed)?Math.max(0,Math.min(5,r.scoreUsed)):0;row.overallConfidence=Number.isInteger(r.scoreConfidence)?Math.max(0,Math.min(100,r.scoreConfidence)):null;}
    for(const key of ["momentum","visitors","comments","advertising","gift","active10m","active60s","activeRecent","activityRecentSeconds","activityRecentEnd","activitySampleEnd","lastActive10m","lastActiveAt","advertisingAt","giftAt","viewers","giftedSubscriptions","kicksGift","giftedSubscriptionsReceived","webhookChatReceived","webhookActiveReceived","webhookActiveSeconds","activeRecentUsers","activeRecentSeconds","activeWindowSeconds"])row[key]=num(r[key]);
    for(const key of ["chatStage","activeStage","statisticsStage","giftedSubscriptionsStage","kicksGiftStage"])row[key]=text(r[key],160);
    if(type==="kick"){
@@ -2346,7 +2347,7 @@ export default {async scheduled(controller,env,ctx){try{const ns=ctx.exports.Ran
  if(url.pathname==="/api/home-ranking-data")return enhancedHomeRanking(request,ctx,env);
  if(url.pathname==="/api/home-ranking-status")return request.method==="GET"?json(await homeRankingStatus(request)):json({status:"error"},405);
  if(url.pathname==="/home-ranking")return request.method==="GET"||request.method==="HEAD"?new Response(null,{status:302,headers:{location:"/api/ranking-page","cache-control":"no-store"}}):json({status:"error"},405);
- if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r118",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
+ if(url.pathname==="/api/health")return json({status:"ok",revision:"2026.11.28-r119",rankingPage:"/api/ranking-page",rankingPageReady:typeof rankingPageHtml==="string"&&rankingPageHtml.includes("ranking-title")});
  if(isRankingPagePath(url.pathname)||(url.pathname==="/"&&url.searchParams.get("page")==="rankings"))return rankingPageResponse(request);
  if(["/api/nico-snapshot","/api/rankings-snapshot"].includes(url.pathname)&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal"+(url.pathname==="/api/nico-snapshot"?"/nico-snapshot":"/rankings-snapshot"));}catch{return json({status:"pending",entries:[]},200,"no-store");}}
  if(url.pathname==="/api/ranking-notices"&&request.method==="GET"){try{const ns=ctx.exports.RankingLiveHub;return await ns.get(ns.idFromName("shared-rankings-v1")).fetch("https://internal/ranking-notices");}catch{return json({status:"unavailable"},503,"no-store");}}
@@ -2426,7 +2427,40 @@ async function liveReadFrames(response,apply){
  }finally{reader.releaseLock();}
 }
 const overallWeights={nico:[["active10m",30],["momentum",20],["visitors",15],["comments",15],["advertising",10],["gift",10]],kick:[["viewers",25],["activeUsers",25],["receivedComments",20],["viewerRate",15],["kicksGift",5],["giftedSubscriptions",5],["giftedSubscriptionsReceived",5]]};
-function scoreOverall(entries,type,now){
+function adaptiveNicoScore(rows){
+ const weights={visitors:15,comments:20,active10m:35,advertising:15,gift:15};
+ const valid=v=>Number.isSafeInteger(v)&&v>=0,clamp=x=>Math.max(0,Math.min(1,x)),n=rows.length;
+ const quantile=(values,p)=>{if(!values.length)return 0;const i=(values.length-1)*p,j=Math.floor(i);return values[j]+(values[Math.min(j+1,values.length-1)]-values[j])*(i-j);};
+ const specs=[];
+ for(const [key,prior] of Object.entries(weights)){
+  const vals=rows.filter(r=>valid(r[key])).map(r=>Math.log1p(r[key])).sort((a,b)=>a-b);
+  // Learn the strength of each signal from its observed spread and coverage; the
+  // prior keeps a single unusually volatile metric from dominating.
+  if(vals.length<Math.min(n,Math.max(2,Math.ceil(n*.2)))||!vals.length)continue;
+  const q10=quantile(vals,.1),q90=quantile(vals,.9),max=quantile(vals,.95),median=quantile(vals,.5),coverage=vals.length/n;
+  const spread=q90>0?clamp((q90-q10)/Math.max(1,q90)):0;
+  const weight=prior*(.75+.5*spread)*(.5+.5*coverage);
+  const scale=x=>max>0?clamp(Math.log1p(x)/max):0;
+  specs.push({key,weight,coverage,neutral:max>0?clamp(median/max):0,scale});
+ }
+ const total=specs.reduce((a,s)=>a+s.weight,0),metrics=specs.map(s=>s.key);
+ const result=rows.map((r,i)=>{
+  let sum=0,observed=0,used=0;
+  for(const s of specs){const has=valid(r[s.key]);if(has){sum+=s.weight*s.scale(r[s.key]);observed+=s.weight;used++;}else sum+=s.weight*s.neutral;}
+  // Missing is not zero. Shrink poorly observed candidates toward the median,
+  // and report precisely how much of the learned model was observed.
+  const conf=total?observed/total*(specs.length/Object.keys(weights).length):0,score=used&&total?Math.round(sum/total*1000)/10:null;
+  return {...r,sourceRank:r.sourceRank??i+1,momentumScore:score,momentum:score===null?null:Math.round(score*10),scoreConfidence:Math.round(conf*100),scoreUsed:used,scoreTotal:Object.keys(weights).length,scoreProvisional:used<Object.keys(weights).length};
+ });
+ return {metrics,weights:Object.fromEntries(specs.map(s=>[s.key,Math.round(s.weight/total*1000)/10])),coverage:Object.fromEntries(Object.keys(weights).map(k=>[k,rows.filter(r=>valid(r[k])).length])),rows:result.sort((a,b)=>(b.momentumScore??-1)-(a.momentumScore??-1)||b.scoreConfidence-a.scoreConfidence||a.sourceRank-b.sourceRank)};
+}
+function adaptiveNicoOverall(entries,now){
+ const rows=entries.map((row,index)=>({...row,sourceRank:index+1,active10m:Number.isSafeInteger(row.activitySampleEnd)&&now-row.activitySampleEnd*1000<=240000&&row.activitySampleEnd*1000<=now+30000?row.active10m:null}));
+ const ranked=adaptiveNicoScore(rows);
+ return {entries:ranked.rows.map(r=>({...r,overallScore:r.momentumScore,overallUsed:r.scoreUsed,overallTotal:r.scoreTotal,overallConfidence:r.scoreConfidence})),used:ranked.metrics.length,total:5,weight:100,keys:ranked.metrics.join(",")};
+}
+
+function scoreOverall(entries,type,now){if(type==='nico')return adaptiveNicoOverall(entries,now);
  const spec=overallWeights[type],rows=entries.map((row,index)=>({...row,sourceRank:index+1}));
  const chatFresh=row=>{const age=now-Date.parse(row.sampledAt);return row.chatPartial===false&&Number.isFinite(age)&&age>=0&&age<=45000;};
  const commonChatSeconds=type==="kick"&&rows.length?[30,15,10,5].find(sec=>rows.every(row=>chatFresh(row)&&Number.isSafeInteger(row.chatCounts?.[sec])&&row.chatCounts[sec]>=0))??null:null;
