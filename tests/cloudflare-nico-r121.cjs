@@ -32,3 +32,12 @@ for(const m of h.matchAll(/<script[^>]*>([^]*?)<[/]script>/gi))new Function(m[1]
  const old=await f.cfCollectGiftEvents121(async()=>{throw Error("HTTP 429");},"",result,Date.now());assert.equal(old.events[0].rows.length,0);assert.equal(old.events[0].status,"link-only");
  console.log("r121 Cloudflare channel identity, source routing, event collection and failure checks passed");
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+;(async()=>{
+ const root="https://koken.nicovideo.jp/campaign",event="https://koken.nicovideo.jp/campaign/event/202611-kohaku-shiro",rank="https://audition.nicovideo.jp/embedded/ranking?key=fixture-gift&max_item_size=25&fixed_result=false",calls=[];
+ const read=async u=>{calls.push(u);if(u===root)return '<a href="/campaign/event/202611-kohaku-shiro"><img alt="白組ギフトイベント"></a><a href="/campaign/event/other-campaign">通常キャンペーン</a><a href="https://example.com/campaign/event/gift">ギフト</a>';if(u===event)return '<title>白組ギフトイベント</title><iframe src="'+rank+'"></iframe>';if(u===rank)return JSON.stringify({ranking:[{rank:1,user:{id:123,name:"fixture"},score:0}]});return "";};
+ const data=await f.cfCollectGiftEvents121(read,"",null,Date.now());
+ assert.equal(data.status,"ok");assert.equal(data.events[0].rows[0].points,0);assert.ok(calls.includes(root)&&calls.includes(event)&&calls.includes(rank));assert.ok(!calls.some(u=>u.includes("other-campaign")||u.includes("example.com")));
+ assert.ok(h.includes('href="https://koken.nicovideo.jp/campaign"'));assert.ok(!h.includes("Cloudflareで公式"));
+ console.log("r123 official campaign catalog fixture and public wording passed");
+})().catch(e=>{console.error(e);process.exitCode=1;});
