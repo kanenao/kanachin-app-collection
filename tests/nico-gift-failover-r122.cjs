@@ -1,0 +1,30 @@
+const assert=require("node:assert/strict"),fs=require("node:fs");
+const w=fs.readFileSync("worker.js","utf8"),h=fs.readFileSync("rankings/index.html","utf8");
+const start=w.indexOf("function officialEventUrl120"),end=w.indexOf("async function cfGiftEvents121",start);
+const f=new Function(w.slice(start,end)+";return {homeGiftPrimary122,cloudGiftFallback122,hybridGiftState122,probeHomeGift122};")();
+const now=Date.parse("2026-11-28T09:00:00Z"),iso=t=>new Date(t).toISOString(),url="https://audition.nicovideo.jp/embedded/ranking?key=giftevent-test";
+const result=(t,points)=>({status:"ok",checkedAt:iso(t),events:[{status:"ok",url,title:"test",fetchedAt:iso(t),rows:[{rank:1,points,userId:"123",name:"A"}]}]});
+assert.equal(f.homeGiftPrimary122(result(now,0),now).events[0].rows[0].points,0);
+assert.equal(f.homeGiftPrimary122(result(now-721000,4),now),null);
+assert.equal(f.homeGiftPrimary122({...result(now,4),events:[{...result(now,4).events[0],fetchedAt:iso(now-721000)}]},now),null);
+assert.equal(f.homeGiftPrimary122({status:"pending",checkedAt:iso(now),events:[]},now).sourceMode,"home");
+assert.equal(f.homeGiftPrimary122({status:"pending",checkedAt:iso(now),events:[],diagnostics:[{error:"HTTP 403"}]},now),null);
+assert.equal(f.homeGiftPrimary122({status:"partial",checkedAt:iso(now),events:[{url,status:"error"}]},now),null);
+assert.equal(f.cloudGiftFallback122(result(now-901000,88),now).events[0].rows.length,0);
+assert.equal(f.cloudGiftFallback122(result(now,88),now).events[0].rows[0].points,88);
+assert.equal(f.cloudGiftFallback122(null,now).sourceMode,"cloudflare");
+assert.ok(h.includes("自宅サーバー（通常運用）"));assert.ok(h.includes("Cloudflare（代替運用）"));
+(async()=>{
+ let t=now,online=true,reads=0,collections=0;const state=new Map(),tasks=[];
+ const hub={env:{},ctx:{storage:{get:async k=>state.get(k),put:async(k,v)=>{state.set(k,v);}},waitUntil:p=>tasks.push(p)}};
+ const opts={clock:()=>t,read:async()=>{reads++;if(!online)throw Error("offline");return result(t,10);},collect:async()=>{collections++;return result(t,50);},warm:true};
+ let s=await f.hybridGiftState122(hub,opts);assert.equal(s.sourceMode,"home");assert.equal(collections,0);
+ s=await f.hybridGiftState122(hub,opts);assert.equal(reads,1);
+ online=false;t+=31000;s=await f.hybridGiftState122(hub,opts);assert.equal(s.sourceMode,"cloudflare");assert.equal(s.events[0].rows[0].points,50);assert.equal(collections,1);
+ t+=31000;s=await f.hybridGiftState122(hub,opts);assert.equal(collections,1);
+ online=true;t+=31000;s=await f.hybridGiftState122(hub,opts);assert.equal(s.sourceMode,"home");assert.equal(s.events[0].rows[0].points,10);assert.equal(collections,1);
+ online=false;t+=31000;s=await f.hybridGiftState122(hub,{...opts,warm:false});await Promise.all(tasks);assert.equal(s.sourceMode,"cloudflare");assert.equal(collections,1);
+ // A valid empty home event list is not a reason to activate standby.
+ t+=31000;s=await f.hybridGiftState122(hub,{...opts,read:async()=>({status:"pending",checkedAt:iso(t),events:[]})});assert.equal(s.sourceMode,"home");assert.equal(collections,1);
+ console.log("r122 home-first, outage, cache, recovery and stale score checks passed");
+})().catch(e=>{console.error(e);process.exitCode=1;});
