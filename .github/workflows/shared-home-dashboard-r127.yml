@@ -1,0 +1,22 @@
+name: Shared home dashboard validation
+on:
+  pull_request:
+    paths:
+      - 'worker.js'
+      - 'rankings/index.html'
+      - 'tests/shared-home-dashboard-r127.cjs'
+      - '.github/workflows/shared-home-dashboard-r127.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --input-type=module --check < worker.js
+      - run: node tests/shared-home-dashboard-r127.cjs
+      - run: node tests/home-ranking-parity-r126.cjs
+      - run: node tests/nico-gift-failover-r122.cjs
