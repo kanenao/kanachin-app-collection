@@ -56,10 +56,10 @@ a.rank-channel{display:block;width:fit-content;text-decoration:underline;color:v
 <article class="app " data-repo="kananeo-nico-live-stream"><div class="app-head"><div class="logo" aria-hidden="true">S</div><div><div class="category">ニコニコ生放送 / 配信管理</div><h3>kananeo nico live stream</h3></div></div><p class="desc">放送枠管理、コメント管理、動画リクエスト、配信支援。</p><div class="buttons"><a class="primary" href="https://github.com/kanenao/kananeo-nico-live-stream/releases">ダウンロード</a><a href="https://github.com/kanenao/kananeo-nico-live-stream">詳細・GitHub</a></div><dl class="versions"><div class="version-row"><dt>正規版</dt><dd data-channel="stable">確認中</dd></div><div class="version-row"><dt>β版</dt><dd data-channel="beta">確認中</dd></div><div class="version-row" hidden><dt>α版</dt><dd data-channel="preview"></dd></div></dl></article>
 </div><p id="empty" hidden>該当するアプリがありません。</p></section>
 
-<section class="ranking-gateway" id="rankings" aria-labelledby="ranking-gateway-title"><div><span class="rank-eyebrow">LIVE / 通常・強化 自動切替</span><h2 id="ranking-gateway-title">LIVE配信ランキング</h2><p>ニコニコ生放送とKickの総合勢いランキング。自宅サーバー稼働時は最大100・50番組の強化モード、停止時は従来のCloudflare通常モードへ自動切替します。</p></div><a class="ranking-entry" href="/api/ranking-page">ランキングを見る <span aria-hidden="true">→</span></a><aside id="home-ranking-maintenance" hidden role="status" aria-live="polite" style="flex-basis:100%;margin:10px 0;padding:12px 15px;background:#fff5df;border:1px solid #d8aa61;border-left:4px solid #ad711a;border-radius:8px;color:#70480e"><strong id="home-ranking-maintenance-title">メンテナンス中</strong><div id="home-ranking-maintenance-text">自宅サーバー版は一時停止中です。従来のCloudflare版ランキングをご利用ください。</div><small id="home-ranking-maintenance-time"></small></aside><aside id="rank-emergency" class="rank-emergency" role="alert" aria-live="assertive" hidden><strong class="rank-emergency-title">緊急お知らせ｜ランキング取得状況</strong><ul class="rank-emergency-list"></ul></aside></section>
+<section class="ranking-gateway" id="rankings" aria-labelledby="ranking-gateway-title"><div><span class="rank-eyebrow">LIVE / 通常・強化 自動切替</span><h2 id="ranking-gateway-title">LIVE配信ランキング</h2><p>ニコニコ生放送とKickの総合勢いランキング。自宅サーバー稼働時は最大100・50番組の強化モード、停止時は従来のCloudflare通常モードへ自動切替します。</p></div><a class="ranking-entry" href="/api/ranking-page">ランキングを見る <span aria-hidden="true">→</span></a><aside id="home-ranking-maintenance" hidden role="status" aria-live="polite" style="flex-basis:100%;margin:10px 0;padding:12px 15px;background:#fff5df;border:1px solid #d8aa61;border-left:4px solid #ad711a;border-radius:8px;color:#70480e"><strong id="home-ranking-maintenance-title">メンテナンス中</strong><div id="home-ranking-maintenance-text">自宅サーバー版は一時停止中です。従来のCloudflare版ランキングをご利用ください。</div><small id="home-ranking-maintenance-time"></small></aside><p id="rank-backup-note" hidden role="status" aria-live="polite" style="flex-basis:100%;margin:8px 0;font-size:12px;color:#53657a"></p><aside id="rank-emergency" class="rank-emergency" role="alert" aria-live="assertive" hidden><strong class="rank-emergency-title">緊急お知らせ｜ランキング取得状況</strong><ul class="rank-emergency-list"></ul></aside></section>
 <section class="roadmap" id="roadmap"><h2>今後の開発予定</h2><ul><li>配信ランキングの取得精度・更新速度向上</li><li>掲示板</li><li>不具合報告・機能要望フォーム</li></ul></section>
 </main>
-<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.28-r115 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
+<footer><div class="wrap">かなちんの作成アプリ集 ・ 更新番号 2026.11.28-r116 ・ <a href="https://github.com/kanenao">GitHub</a> ・ <a href="https://x.com/KANE_NAO">X</a></div></footer>
 <script>
 "use strict";
 const cards=[...document.querySelectorAll(".app")],status=document.querySelector("#status"),refresh=document.querySelector("#refresh");
@@ -120,11 +120,14 @@ refresh.addEventListener("click",()=>load(true));load();
 setInterval(()=>{if(!document.hidden)load();},TTL);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-lastAttempt>=TTL)load();});
 
-const rankNoticeMap=new Map();let rankNoticeUnavailable=false;
+const rankNoticeMap=new Map();let rankNoticeUnavailable=false;let rankNoticeHomeReadyUntil=0;
+const backupNoticeKeys=new Set(["budget","nico","kick","nico-stats","shared"]);
 function renderRankingNotices(){
  const root=document.getElementById("rank-emergency");if(!root)return;const list=root.querySelector(".rank-emergency-list");list.replaceChildren();
- for(const item of rankNoticeMap.values()){const li=document.createElement("li"),msg=document.createElement("strong");msg.textContent=item.text;li.append(msg);const meta=document.createElement("small");meta.textContent="検知 "+new Date(item.at).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+(Number.isFinite(item.nextAt)?" ／ 再開予定（最短） "+new Date(item.nextAt).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"}):" ／ 復旧次第自動解除");li.append(meta);list.append(li);}
- if(rankNoticeUnavailable){const li=document.createElement("li");li.textContent="緊急お知らせの接続状態を確認できません。再確認中です。";list.append(li);}
+ const homeReady=Date.now()<rankNoticeHomeReadyUntil,backup=document.getElementById("rank-backup-note");let backupIssue=false;
+ for(const item of rankNoticeMap.values()){const isBackup=backupNoticeKeys.has(item.key);if(homeReady&&isBackup){backupIssue=true;continue;}const li=document.createElement("li"),msg=document.createElement("strong");msg.textContent=(isBackup?"通常モード（Cloudflare）｜":"")+item.text;li.append(msg);const meta=document.createElement("small");meta.textContent="検知 "+new Date(item.at).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+(Number.isFinite(item.nextAt)?" ／ 再開予定（最短） "+new Date(item.nextAt).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"}):" ／ 復旧次第自動解除");li.append(meta);list.append(li);}
+ if(rankNoticeUnavailable&&!homeReady){const li=document.createElement("li");li.textContent="通常モードのお知らせの接続状態を確認できません。再確認中です。";list.append(li);}
+ if(backup){backup.hidden=!(homeReady&&(backupIssue||rankNoticeUnavailable));backup.textContent=backup.hidden?"":backupIssue?"予備系（Cloudflare通常モード）に取得休止・通信異常があります。自宅サーバーのランキングは取得確認済みです。":"予備系（Cloudflare通常モード）の通知を確認中です。自宅サーバーのランキングは取得確認済みです。";}
  root.hidden=!list.childElementCount;
 }
 function applyRankingNoticeFrame(frame){
@@ -163,13 +166,15 @@ document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeo
    if(!response.ok)throw Error("status unavailable");
    const data=await response.json();
    if(!["online","offline"].includes(data.status)||!Number.isFinite(data.checkedAt))throw Error("invalid status");
+   const age=Date.now()-data.checkedAt;rankNoticeHomeReadyUntil=data.status==="online"&&data.rankingReady===true&&age>=0&&age<=30000?data.checkedAt+45000:0;renderRankingNotices();
    if(data.status==="online"){box.hidden=true;}
    else{title.textContent="メンテナンス中｜自宅サーバー版ランキング";message.textContent="自宅サーバー版は現在一時停止中、または通信できない状態です。従来のCloudflare版ランキングは引き続きご利用いただけます。";time.textContent="最終確認："+new Date(data.checkedAt).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST ・ 自動で再確認します";box.hidden=false;}
   }catch{
+   rankNoticeHomeReadyUntil=0;renderRankingNotices();
    title.textContent="自宅サーバー版の接続状況を確認できません";message.textContent="従来のCloudflare版ランキングをご利用ください。自動で再確認します。";time.textContent="";box.hidden=false;
   }finally{busy=false;if(!document.hidden)timer=setTimeout(check,30000);}
  }
- document.addEventListener("visibilitychange",()=>{if(document.hidden)clearTimeout(timer);else check();});
+ document.addEventListener("visibilitychange",()=>{if(document.hidden)clearTimeout(timer);else{renderRankingNotices();check();}});
  check();
 })();
 </script>
